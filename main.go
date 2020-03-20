@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"github.com/gorilla/sessions"
 	_ "github.com/mattn/go-sqlite3"
+	_ "golang.org/x/crypto/bcrypt"
+	"html/template"
 	"net/http"
 	"time"
 )
@@ -14,6 +16,8 @@ var (
 	key   = []byte("super-secret-key")
 	store = sessions.NewCookieStore(key)
 )
+
+var t *template.Template
 
 func secret(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "cookie-name")
@@ -124,6 +128,11 @@ func hi_db() {
 
 func main() {
 	hi_db()
+	var err error
+	t, err = template.ParseGlob("templates/*.tmpl")
+	if err != nil {
+		panic(err)
+	}
 	http.HandleFunc("/", hello)
 	http.HandleFunc("/secret", secret)
 	http.HandleFunc("/login", login)
@@ -132,5 +141,5 @@ func main() {
 }
 
 func hello(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("suuuup"))
+	t.ExecuteTemplate(w, "signup.tmpl", "asdf")
 }
