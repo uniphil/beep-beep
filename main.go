@@ -10,7 +10,6 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
-	"time"
 )
 
 var (
@@ -21,22 +20,10 @@ var (
 )
 
 var t *template.Template
+var db *sql.DB
 
 func normalizeEmail(e string) string {
 	return strings.ToLower(e)
-}
-
-func secret(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, cookie_name)
-
-	// Check if user is authenticated
-	if auth, ok := session.Values["authenticated"].(bool); !ok || !auth {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	// Print secret message
-	fmt.Fprintln(w, "The cake is a lie!")
 }
 
 type LoginDetails struct {
@@ -52,8 +39,6 @@ func signup(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, cookie_name)
 
 	if r.Method == http.MethodPost {
-		db, err := sql.Open("sqlite3", "./accounts.db")
-		checkErr(err)
 
 		details := LoginDetails{
 			Email:    r.FormValue("email"),
@@ -104,8 +89,6 @@ func login(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, cookie_name)
 
 	if r.Method == http.MethodPost {
-		db, err := sql.Open("sqlite3", "./accounts.db")
-		checkErr(err)
 
 		details := LoginDetails{
 			Email:    r.FormValue("email"),
@@ -140,13 +123,15 @@ func login(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		t.ExecuteTemplate(w, "signup.tmpl", LoginContext{Action: "/login"})
+		t.ExecuteTemplate(w, "login.tmpl", LoginContext{Action: "/login"})
+
+		// http.Error(w, "Forbidden", http.StatusForbidden)
 
 		// Set user as authenticated
 		session.Values["authenticated"] = true
 		session.Save(r, w)
 	} else {
-		t.ExecuteTemplate(w, "signup.tmpl", LoginContext{Action: "/login"})
+		t.ExecuteTemplate(w, "login.tmpl", LoginContext{Action: "/login"})
 	}
 }
 
@@ -164,99 +149,21 @@ func checkErr(err error) {
 	}
 }
 
-func hi_db() {
-	db, err := sql.Open("sqlite3", "./accounts.db")
-	checkErr(err)
-
-	// insert
-	stmt, err := db.Prepare("INSERT INTO users(email, password) values(?,?)")
-	checkErr(err)
-
-	res, err := stmt.Exec("uniphil@gmail.com", "研发部门")
-	checkErr(err)
-
-	id, err := res.LastInsertId()
-	checkErr(err)
-
-	fmt.Println(id)
-	// update
-	stmt, err = db.Prepare("update users set email=? where id=?")
-	checkErr(err)
-
-	res, err = stmt.Exec("blah@example.com", id)
-	checkErr(err)
-
-	affect, err := res.RowsAffected()
-	checkErr(err)
-
-	fmt.Println(affect)
-
-	// query
-	rows, err := db.Query("SELECT * FROM users")
-	checkErr(err)
-	var id_ int
-	var email string
-	var password string
-	var created time.Time
-	var v_code string
-	var verified sql.NullTime
-
-	for rows.Next() {
-		err = rows.Scan(&id_, &email, &created, &password, &v_code, &verified)
-		checkErr(err)
-		fmt.Println(id_)
-		fmt.Println(email)
-		fmt.Println(password)
-		fmt.Println(created)
-		fmt.Println(v_code)
-		if verified.Valid {
-			fmt.Println(verified.Time)
-		} else {
-			fmt.Println("not verified.")
-		}
-	}
-
-	rows.Close() //good habit to close
-
-	// delete
-	stmt, err = db.Prepare("delete from users where id=?")
-	checkErr(err)
-
-	res, err = stmt.Exec(id)
-	checkErr(err)
-
-	affect, err = res.RowsAffected()
-	checkErr(err)
-
-	fmt.Println(affect)
-
-	db.Close()
+func home(w http.ResponseWriter, r *http.Request) {
+	t.ExecuteTemplate(w, "home.tmpl", nil)
 }
 
 func main() {
-	hi_db()
+	t = template.Must(template.ParseGlob("templates/*.tmpl"))
 	var err error
-	t, err = template.ParseGlob("templates/*.tmpl")
+	db, err = sql.Open("sqlite3", "./accounts.db")
 	if err != nil {
 		panic(err)
 	}
 	r := mux.NewRouter()
-	r.HandleFunc("/", hello)
-	r.HandleFunc("/secret", secret)
+	r.HandleFunc("/", home)
 	r.HandleFunc("/signup", signup)
 	r.HandleFunc("/login", login)
 	r.HandleFunc("/logout", logout)
 	http.ListenAndServe(":8080", r)
-}
-
-func hello(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-		h, err := bcrypt.GenerateFromPassword([]byte("abc123"), bcrypt.DefaultCost)
-		if err != nil {
-			panic(err)
-		}
-		t.ExecuteTemplate(w, "signup.tmpl", h)
-	} else {
-		t.ExecuteTemplate(w, "signup.tmpl", "asdf")
-	}
 }
