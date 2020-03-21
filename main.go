@@ -155,15 +155,18 @@ func home(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	t = template.Must(template.ParseGlob("templates/*.tmpl"))
-	var err error
-	db, err = sql.Open("sqlite3", "./accounts.db")
+
+	db_, err := sql.Open("sqlite3", "./accounts.db")
 	if err != nil {
 		panic(err)
 	}
+	db = db_
+
 	r := mux.NewRouter()
 	r.HandleFunc("/", home)
 	r.HandleFunc("/signup", signup)
 	r.HandleFunc("/login", login)
 	r.HandleFunc("/logout", logout)
+
 	http.ListenAndServe(":8080", r)
 }
