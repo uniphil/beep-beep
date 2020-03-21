@@ -15,8 +15,8 @@ import (
 
 var (
 	// key must be 16, 24 or 32 bytes long (AES-128, AES-192 or AES-256)
-	key   = []byte("super-secret-key")
-	store = sessions.NewCookieStore(key)
+	key         = []byte("super-secret-key")
+	store       = sessions.NewCookieStore(key)
 	cookie_name = "beep-beep"
 )
 
@@ -49,7 +49,7 @@ type LoginContext struct {
 }
 
 func signup(w http.ResponseWriter, r *http.Request) {
-	// session, _ := store.Get(r, cookie_name)
+	session, _ := store.Get(r, cookie_name)
 
 	if r.Method == http.MethodPost {
 		db, err := sql.Open("sqlite3", "./accounts.db")
@@ -79,7 +79,6 @@ func signup(w http.ResponseWriter, r *http.Request) {
 			panic(err)
 		}
 
-
 		// insert
 		stmt, err := db.Prepare("INSERT INTO users(email, password) values(?,?)")
 		checkErr(err)
@@ -87,51 +86,75 @@ func signup(w http.ResponseWriter, r *http.Request) {
 		res, err := stmt.Exec(email, password)
 		checkErr(err)
 
-		id, err := res.LastInsertId()
+		user_id, err := res.LastInsertId()
 		checkErr(err)
 
-		fmt.Println(id)
+		fmt.Println(user_id)
+
+		// Set user as authenticated
+		session.Values["user_id"] = user_id
+		session.Save(r, w)
 		t.ExecuteTemplate(w, "signup.tmpl", LoginContext{Action: "/signup"})
 	} else {
 		t.ExecuteTemplate(w, "signup.tmpl", LoginContext{Action: "/signup"})
 	}
-
-	// // Set user as authenticated
-	// session.Values["authenticated"] = true
-	// session.Save(r, w)
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
-	// session, _ := store.Get(r, cookie_name)
+	session, _ := store.Get(r, cookie_name)
 
 	if r.Method == http.MethodPost {
+		db, err := sql.Open("sqlite3", "./accounts.db")
+		checkErr(err)
 
 		details := LoginDetails{
 			Email:    r.FormValue("email"),
 			Password: r.FormValue("password"),
 		}
 
-		password := details.Password
-		hash := "asdfasdf"
-		matches := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
-		if !matches {
-			panic("oh nooooo")
+		email := normalizeEmail(details.Email)
+
+		q, err := db.Prepare("SELECT id, password FROM users WHERE email = ?")
+		checkErr(err)
+		rows, err := q.Query(email)
+
+		var id int
+		var password_hash []byte
+		for rows.Next() {
+			err := rows.Scan(&id, &password_hash)
+			checkErr(err)
+
+			fmt.Println("pw hash")
+			fmt.Println(password_hash)
+			fmt.Println(details.Password)
+
+			matches := bcrypt.CompareHashAndPassword(password_hash, []byte(details.Password))
+
+			fmt.Println(matches)
+
+			if matches != nil {
+				panic("oh nooooo doesn match")
+			} else {
+				fmt.Println("kk cool")
+				fmt.Println(id)
+			}
 		}
+
 		t.ExecuteTemplate(w, "signup.tmpl", LoginContext{Action: "/login"})
+
+		// Set user as authenticated
+		session.Values["authenticated"] = true
+		session.Save(r, w)
 	} else {
 		t.ExecuteTemplate(w, "signup.tmpl", LoginContext{Action: "/login"})
 	}
-
-	// // Set user as authenticated
-	// session.Values["authenticated"] = true
-	// session.Save(r, w)
 }
 
 func logout(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, cookie_name)
 
 	// Revoke users authentication
-	session.Values["authenticated"] = false
+	session.Values["user_id"] = nil
 	session.Save(r, w)
 }
 
