@@ -4,6 +4,11 @@
     <title>hello</title>
   </head>
   <body>
-    <p>hiiiii {{ . }}</p>
+    <p>hiiiii</p>
+    <form action="{{ .Action }}" method="post">
+      <p><input type="email" name="email" /></p>
+      <p><input type="password" name="password" /></p>
+      <p><button type="submit">go get it</button></p>
+    </form>
   </body>
 </html>
