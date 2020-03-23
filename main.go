@@ -48,33 +48,33 @@ func signup(w http.ResponseWriter, r *http.Request) {
 
 		email := normalizeEmail(details.Email)
 
-		q, err := db.Prepare("SELECT 1 FROM users WHERE email = ?")
-		checkErr(err)
-		rows, err := q.Query(email)
-
-		if rows.Next() {
-			http.Error(w, "Email already registered", http.StatusForbidden)
-			return
-		}
-
-		rows.Close() //good habit to close
-
 		password, err := bcrypt.GenerateFromPassword([]byte("abc123"), bcrypt.DefaultCost)
 		if err != nil {
 			panic(err)
 		}
 
-		// insert
 		stmt, err := db.Prepare("INSERT INTO users(email, password) values(?,?)")
-		checkErr(err)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
 		res, err := stmt.Exec(email, password)
-		checkErr(err)
+		if err != nil {
+			if err.Error() == "UNIQUE constraint failed: users.email" {
+				http.Error(w, "Email already exists", http.StatusForbidden)
+			} else {
+				http.Error(w, "Error while trying to create account", http.StatusForbidden)
+			}
+			return
+		}
 
 		user_id, err := res.LastInsertId()
-		checkErr(err)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-		// Set user as authenticated
 		session.Values["user_id"] = user_id
 		session.Save(r, w)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -96,22 +96,26 @@ func login(w http.ResponseWriter, r *http.Request) {
 		email := normalizeEmail(details.Email)
 
 		q, err := db.Prepare("SELECT id, password FROM users WHERE email = ?")
-		checkErr(err)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		rows, err := q.Query(email)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
 		var id int
 		var password_hash []byte
 		for rows.Next() {
 			err := rows.Scan(&id, &password_hash)
-			checkErr(err)
-
-			fmt.Println("pw hash")
-			fmt.Println(password_hash)
-			fmt.Println(details.Password)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 
 			matches := bcrypt.CompareHashAndPassword(password_hash, []byte(details.Password))
-
-			fmt.Println(matches)
 
 			if matches != nil {
 				http.Error(w, "Incorrect password", http.StatusForbidden)
@@ -136,13 +140,7 @@ func logout(w http.ResponseWriter, r *http.Request) {
 	}
 	delete(session.Values, "user_id")
 	session.Save(r, w)
-	// http.Redirect(w, "/")
-}
-
-func checkErr(err error) {
-	if err != nil {
-		panic(err)
-	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 type User struct {
@@ -151,8 +149,6 @@ type User struct {
 
 func getUser(session *sessions.Session) *User {
 	id, exists := session.Values["user_id"]
-	fmt.Println(session)
-	fmt.Println(session.Values)
 	if !exists {
 		return &User{}
 	}
@@ -166,7 +162,10 @@ func getUser(session *sessions.Session) *User {
 	err = stmt.QueryRow(id).Scan(&email)
 	switch {
 	case err == sql.ErrNoRows:
-		log.Fatalf("no user with id %d", id)
+		// no user with this id??
+		delete(session.Values, "user_id")
+		// deletion may not get saved, but that shouldn't matter
+		return &User{}
 	case err != nil:
 		log.Fatal(err)
 	}
