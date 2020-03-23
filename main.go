@@ -53,9 +53,8 @@ func signup(w http.ResponseWriter, r *http.Request) {
 		rows, err := q.Query(email)
 
 		if rows.Next() {
-			panic("aiee already exists")
-		} else {
-			fmt.Println("kk cool")
+			http.Error(w, "Email already registered", http.StatusForbidden)
+			return
 		}
 
 		rows.Close() //good habit to close
@@ -75,12 +74,10 @@ func signup(w http.ResponseWriter, r *http.Request) {
 		user_id, err := res.LastInsertId()
 		checkErr(err)
 
-		fmt.Println(user_id)
-
 		// Set user as authenticated
 		session.Values["user_id"] = user_id
 		session.Save(r, w)
-		t.ExecuteTemplate(w, "signup.tmpl", LoginContext{Action: "/signup"})
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 	} else {
 		t.ExecuteTemplate(w, "signup.tmpl", LoginContext{Action: "/signup"})
 	}
@@ -117,19 +114,15 @@ func login(w http.ResponseWriter, r *http.Request) {
 			fmt.Println(matches)
 
 			if matches != nil {
-				panic("oh nooooo doesn match")
-			} else {
-				fmt.Println("kk cool")
-				fmt.Println(id)
+				http.Error(w, "Incorrect password", http.StatusForbidden)
+				return
 			}
 		}
-
-		// http.Error(w, "Forbidden", http.StatusForbidden)
 
 		session.Values["user_id"] = id
 		session.Save(r, w)
 
-		t.ExecuteTemplate(w, "login.tmpl", LoginContext{Action: "/login"})
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 	} else {
 		t.ExecuteTemplate(w, "login.tmpl", LoginContext{Action: "/login"})
 	}
