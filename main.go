@@ -8,6 +8,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
 	"html/template"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -123,24 +124,26 @@ func login(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		t.ExecuteTemplate(w, "login.tmpl", LoginContext{Action: "/login"})
-
 		// http.Error(w, "Forbidden", http.StatusForbidden)
 
-		// Set user as authenticated
-		session.Values["authenticated"] = true
+		session.Values["user_id"] = id
 		session.Save(r, w)
+
+		t.ExecuteTemplate(w, "login.tmpl", LoginContext{Action: "/login"})
 	} else {
 		t.ExecuteTemplate(w, "login.tmpl", LoginContext{Action: "/login"})
 	}
 }
 
 func logout(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, cookie_name)
-
-	// Revoke users authentication
-	session.Values["user_id"] = nil
+	session, err := store.Get(r, cookie_name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	delete(session.Values, "user_id")
 	session.Save(r, w)
+	// http.Redirect(w, "/")
 }
 
 func checkErr(err error) {
@@ -149,8 +152,42 @@ func checkErr(err error) {
 	}
 }
 
+type User struct {
+	Email string
+}
+
+func getUser(session *sessions.Session) *User {
+	id, exists := session.Values["user_id"]
+	fmt.Println(session)
+	fmt.Println(session.Values)
+	if !exists {
+		return &User{}
+	}
+	stmt, err := db.Prepare("SELECT email FROM users WHERE id = ?")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer stmt.Close()
+
+	var email string
+	err = stmt.QueryRow(id).Scan(&email)
+	switch {
+	case err == sql.ErrNoRows:
+		log.Fatalf("no user with id %d", id)
+	case err != nil:
+		log.Fatal(err)
+	}
+	return &User{Email: email}
+}
+
 func home(w http.ResponseWriter, r *http.Request) {
-	t.ExecuteTemplate(w, "home.tmpl", nil)
+	session, err := store.Get(r, cookie_name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	user := getUser(session)
+	t.ExecuteTemplate(w, "home.tmpl", user)
 }
 
 func main() {

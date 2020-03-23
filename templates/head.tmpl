@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>beep beep! traffic counter, privacy-first</title>
+</head>
+<body>
+<header>
+  <h1>beep beep</h1>
+  {{ if ne . nil }}
+    {{ .Email }}
+  {{ else }}
+    nah i guess na {{ . }} (asdfasdf)
+  {{ end }}
+</header>
