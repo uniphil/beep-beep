@@ -1,3 +1,6 @@
 {{ template "head.tmpl" . }}
-fdsasdf
+{{ if . }}
+{{ else }}
+    {{ template "signup_form.tmpl" }}
+{{ end }}
 {{ template "foot.tmpl" }}

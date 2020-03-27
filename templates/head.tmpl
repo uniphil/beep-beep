@@ -5,12 +5,11 @@
   <title>beep beep! traffic counter, privacy-first</title>
 </head>
 <body>
-<header>
-  <h1>beep beep {{ . }}</h1>
-  {{ if . }}
-    wat
-    {{ .Email }}
-  {{ else }}
-    nah i guess na {{ . }} (asdfasdf)
-  {{ end }}
-</header>
+  <header>
+    <h1><a href="/">beep beep</a></h1>
+    {{ if . }}
+      {{ .Email }} <a href="/logout">log out</a>
+    {{ else }}
+      <a href="/login">log in</a>
+    {{ end }}
+  </header>

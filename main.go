@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
-	_ "fmt"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
@@ -28,113 +27,98 @@ func normalizeEmail(e string) string {
 	return strings.ToLower(e)
 }
 
-type LoginDetails struct {
-	Email    string
-	Password string
-}
-
-type LoginContext struct {
-	Action string
-}
-
 type User struct {
 	Email string
 }
 
 func signup(w http.ResponseWriter, r *http.Request) {
-	session, _ := (*store).Get(r, cookie_name)
-
-	if r.Method == http.MethodPost {
-
-		details := LoginDetails{
-			Email:    r.FormValue("email"),
-			Password: r.FormValue("password"),
-		}
-
-		email := normalizeEmail(details.Email)
-
-		password, err := bcrypt.GenerateFromPassword([]byte("abc123"), bcrypt.DefaultCost)
-		if err != nil {
-			panic(err)
-		}
-
-		stmt, err := db.Prepare("INSERT INTO users(email, password) values(?,?)")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		res, err := stmt.Exec(email, password)
-		if err != nil {
-			if err.Error() == "UNIQUE constraint failed: users.email" {
-				http.Error(w, "Email already exists", http.StatusForbidden)
-			} else {
-				http.Error(w, "Error while trying to create account", http.StatusForbidden)
-			}
-			return
-		}
-
-		user_id, err := res.LastInsertId()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		session.Values["user_id"] = user_id
-		session.Save(r, w)
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-	} else {
-		t.ExecuteTemplate(w, "signup.tmpl", LoginContext{Action: "/signup"})
+	if r.Method != http.MethodPost {
+		t.ExecuteTemplate(w, "signup.tmpl", nil)
+		return
 	}
+	session, err := (*store).Get(r, cookie_name)
+	if e, ie := err.(securecookie.Error); ie && e.IsDecode() {
+		// invalid cookie nbd; we'll overwrite
+	} else if err != nil {
+		http.Error(w, err.Error()+" (in logout)", http.StatusInternalServerError)
+		return
+	}
+	email := normalizeEmail(r.FormValue("email"))
+	pw_plain := r.FormValue("password")
+	pw_hash, err := bcrypt.GenerateFromPassword([]byte(pw_plain), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, err.Error()+" (while trying to encrypt password)", http.StatusInternalServerError)
+		return
+	}
+
+	stmt, err := db.Prepare("INSERT INTO users(email, password) values(?,?)")
+	if err != nil {
+		http.Error(w, err.Error()+" (while setting up db query)", http.StatusInternalServerError)
+		return
+	}
+
+	res, err := stmt.Exec(email, pw_hash)
+	if err != nil {
+		if err.Error() == "UNIQUE constraint failed: users.email" {
+			http.Error(w, "Email already exists", http.StatusForbidden)
+		} else {
+			http.Error(w, "Error while trying to create account— "+ err.Error(), http.StatusForbidden)
+		}
+		return
+	}
+
+	user_id, err := res.LastInsertId()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	session.Values["user_id"] = user_id
+	session.Save(r, w)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
-	session, _ := (*store).Get(r, cookie_name)
-
-	if r.Method == http.MethodPost {
-
-		details := LoginDetails{
-			Email:    r.FormValue("email"),
-			Password: r.FormValue("password"),
-		}
-
-		email := normalizeEmail(details.Email)
-
-		q, err := db.Prepare("SELECT id, password FROM users WHERE email = ?")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		rows, err := q.Query(email)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		var id int
-		var password_hash []byte
-		for rows.Next() {
-			err := rows.Scan(&id, &password_hash)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			matches := bcrypt.CompareHashAndPassword(password_hash, []byte(details.Password))
-
-			if matches != nil {
-				http.Error(w, "Incorrect password", http.StatusForbidden)
-				return
-			}
-		}
-
-		session.Values["user_id"] = id
-		session.Save(r, w)
-
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-	} else {
-		t.ExecuteTemplate(w, "login.tmpl", LoginContext{Action: "/login"})
+	if r.Method != http.MethodPost {
+		t.ExecuteTemplate(w, "login.tmpl", nil)
+		return
 	}
+	session, err := (*store).Get(r, cookie_name)
+	if e, ie := err.(securecookie.Error); ie && e.IsDecode() {
+		// invalid cookie nbd; we'll overwrite
+	} else if err != nil {
+		http.Error(w, err.Error()+" (in logout)", http.StatusInternalServerError)
+		return
+	}
+	email := normalizeEmail(r.FormValue("email"))
+	pw_plain := r.FormValue("password")
+
+	stmt, err := db.Prepare("SELECT id, password FROM users WHERE email = ?")
+	if err != nil {
+		http.Error(w, err.Error() + " (while preparing sql)", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+	var id int
+	var pw_hash []byte
+	err = stmt.QueryRow(email).Scan(&id, &pw_hash)
+	if err == sql.ErrNoRows {  // no user with this id??
+		http.Error(w, err.Error()+" (could not find account)", http.StatusInternalServerError)
+		return
+	} else if err != nil {
+		http.Error(w, err.Error()+" (while finding account)", http.StatusInternalServerError)
+		return
+	}
+
+	matches := bcrypt.CompareHashAndPassword(pw_hash, []byte(pw_plain))
+	if matches != nil {
+		http.Error(w, "Incorrect password", http.StatusForbidden)
+		return
+	}
+
+	session.Values["user_id"] = id
+	session.Save(r, w)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func logout(w http.ResponseWriter, r *http.Request) {
@@ -205,11 +189,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
 	store = sessions.NewCookieStore(key[:])
-
 	t = template.Must(template.ParseGlob("templates/*.tmpl"))
-
 	db_, err := sql.Open("sqlite3", "./accounts.db")
 	if err != nil {
 		panic(err)
@@ -218,11 +199,9 @@ func main() {
 
 	r := mux.NewRouter()
 	r.Use(GetSession)
-
 	r.HandleFunc("/", home)
 	r.HandleFunc("/signup", signup)
 	r.HandleFunc("/login", login)
 	r.HandleFunc("/logout", logout)
-
 	http.ListenAndServe(":8080", r)
 }
