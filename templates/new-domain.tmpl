@@ -1,0 +1,6 @@
+{{ template "head.tmpl" .User }}
+<form action="/new-domain" method="post">
+  <p><input type="text" name="host" required /></p>
+  <p><button type="submit">Add domain</button></p>
+</form>
+{{ template "foot.tmpl" }}

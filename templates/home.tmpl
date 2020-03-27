@@ -1,5 +1,6 @@
-{{ template "head.tmpl" . }}
-{{ if . }}
+{{ template "head.tmpl" .User }}
+{{ if .User }}
+    {{ template "domains.tmpl" .Domains }}
 {{ else }}
     {{ template "signup_form.tmpl" }}
 {{ end }}

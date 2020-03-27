@@ -1,0 +1,5 @@
+{{ range . }}
+    <p>domain... {{ . }}</p>
+{{ else }}
+    <p>no domains. <a href="/new-domain">add domain</a></p>
+{{ end }}

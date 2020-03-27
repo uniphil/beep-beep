@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
@@ -27,7 +28,12 @@ func normalizeEmail(e string) string {
 	return strings.ToLower(e)
 }
 
+func normalizeHost(e string) string {
+	return strings.ToLower(e)
+}
+
 type User struct {
+	Id    int64
 	Email string
 }
 
@@ -62,7 +68,7 @@ func signup(w http.ResponseWriter, r *http.Request) {
 		if err.Error() == "UNIQUE constraint failed: users.email" {
 			http.Error(w, "Email already exists", http.StatusForbidden)
 		} else {
-			http.Error(w, "Error while trying to create account— "+ err.Error(), http.StatusForbidden)
+			http.Error(w, "Error while trying to create account— "+err.Error(), http.StatusForbidden)
 		}
 		return
 	}
@@ -95,14 +101,14 @@ func login(w http.ResponseWriter, r *http.Request) {
 
 	stmt, err := db.Prepare("SELECT id, password FROM users WHERE email = ?")
 	if err != nil {
-		http.Error(w, err.Error() + " (while preparing sql)", http.StatusInternalServerError)
+		http.Error(w, err.Error()+" (while preparing sql)", http.StatusInternalServerError)
 		return
 	}
 	defer stmt.Close()
-	var id int
+	var id int64
 	var pw_hash []byte
 	err = stmt.QueryRow(email).Scan(&id, &pw_hash)
-	if err == sql.ErrNoRows {  // no user with this id??
+	if err == sql.ErrNoRows { // no user with this id??
 		http.Error(w, err.Error()+" (could not find account)", http.StatusInternalServerError)
 		return
 	} else if err != nil {
@@ -136,9 +142,90 @@ func logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+type Domain struct {
+	Host string
+}
+
+type NewDomainPageContext struct {
+	User *User
+}
+
+func new_domain(w http.ResponseWriter, r *http.Request) {
+	user, _ := r.Context().Value("user").(*User)
+	if user == nil {
+		http.Error(w, "(not logged in)", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodPost {
+		t.ExecuteTemplate(w, "new-domain.tmpl", NewDomainPageContext{User: user})
+		return
+	}
+	host := normalizeHost(r.FormValue("host"))
+
+	stmt, err := db.Prepare("INSERT INTO domains(host, account) values(?,?)")
+	if err != nil {
+		http.Error(w, err.Error()+" (while setting up db query)", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	res, err := stmt.Exec(host, user.Id)
+	if err != nil {
+		http.Error(w, "Error while trying to add domain— "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	_, err = res.LastInsertId()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+type HomePageContext struct {
+	User    *User
+	Domains []Domain
+}
+
 func home(w http.ResponseWriter, r *http.Request) {
-	user := r.Context().Value("user")
-	t.ExecuteTemplate(w, "home.tmpl", user)
+	var domains []Domain
+	user, _ := r.Context().Value("user").(*User)
+	if user != nil {
+		stmt, err := db.Prepare("SELECT id, host, key FROM domains WHERE account = ?")
+		if err != nil {
+			http.Error(w, err.Error()+" (while setting up db query)", http.StatusInternalServerError)
+			return
+		}
+		defer stmt.Close()
+
+		rows, err := stmt.Query(user.Id)
+		if err != nil {
+			http.Error(w, "Error while looking up domains domain— "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		domains = make([]Domain, 0)
+		for rows.Next() {
+			var id int64
+			var host string
+			var key string
+			err = rows.Scan(&id, &host, &key)
+			if err != nil {
+				http.Error(w, err.Error()+" (while getting domains)", http.StatusInternalServerError)
+				return
+			}
+			fmt.Println("row", id, host, key)
+			domains = append(domains, Domain{Host: host})
+		}
+
+	}
+
+	page_context := HomePageContext{
+		User:    user,
+		Domains: domains,
+	}
+	t.ExecuteTemplate(w, "home.tmpl", page_context)
 }
 
 func GetSession(next http.Handler) http.Handler {
@@ -176,7 +263,10 @@ func GetSession(next http.Handler) http.Handler {
 				http.Error(w, err.Error()+" (sql query error???)", http.StatusInternalServerError)
 				return
 			}
-			user = &User{Email: email}
+			user = &User{
+				Email: email,
+				Id:    id.(int64),
+			}
 		}
 	anywayyy:
 		r = r.WithContext(context.WithValue(r.Context(), "user", user))
@@ -203,5 +293,6 @@ func main() {
 	r.HandleFunc("/signup", signup)
 	r.HandleFunc("/login", login)
 	r.HandleFunc("/logout", logout)
+	r.HandleFunc("/new-domain", new_domain)
 	http.ListenAndServe(":8080", r)
 }
