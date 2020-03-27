@@ -1,27 +1,28 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
 	"database/sql"
-	"fmt"
+	_ "fmt"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
 	"html/template"
-	"log"
 	"net/http"
 	"strings"
 )
 
-var (
-	// key must be 16, 24 or 32 bytes long (AES-128, AES-192 or AES-256)
-	key         = []byte("super-secret-key")
-	store       = sessions.NewCookieStore(key)
-	cookie_name = "beep-beep"
-)
+var cookie_name = "beep-beep"
 
-var t *template.Template
-var db *sql.DB
+var (
+	key   [32]byte // key must be 16, 24 or 32 bytes long (AES-128, AES-192 or AES-256)
+	t     *template.Template
+	db    *sql.DB
+	store *sessions.CookieStore
+)
 
 func normalizeEmail(e string) string {
 	return strings.ToLower(e)
@@ -36,8 +37,12 @@ type LoginContext struct {
 	Action string
 }
 
+type User struct {
+	Email string
+}
+
 func signup(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, cookie_name)
+	session, _ := (*store).Get(r, cookie_name)
 
 	if r.Method == http.MethodPost {
 
@@ -84,7 +89,7 @@ func signup(w http.ResponseWriter, r *http.Request) {
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, cookie_name)
+	session, _ := (*store).Get(r, cookie_name)
 
 	if r.Method == http.MethodPost {
 
@@ -133,9 +138,13 @@ func login(w http.ResponseWriter, r *http.Request) {
 }
 
 func logout(w http.ResponseWriter, r *http.Request) {
-	session, err := store.Get(r, cookie_name)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	session, err := (*store).Get(r, cookie_name)
+	if e, ie := err.(securecookie.Error); ie && e.IsDecode() {
+		// decode error: we can just redirect home; the invalid cookie will be cleared automatically
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	} else if err != nil {
+		http.Error(w, err.Error()+" (in logout)", http.StatusInternalServerError)
 		return
 	}
 	delete(session.Values, "user_id")
@@ -143,46 +152,62 @@ func logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-type User struct {
-	Email string
-}
-
-func getUser(session *sessions.Session) *User {
-	id, exists := session.Values["user_id"]
-	if !exists {
-		return &User{}
-	}
-	stmt, err := db.Prepare("SELECT email FROM users WHERE id = ?")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer stmt.Close()
-
-	var email string
-	err = stmt.QueryRow(id).Scan(&email)
-	switch {
-	case err == sql.ErrNoRows:
-		// no user with this id??
-		delete(session.Values, "user_id")
-		// deletion may not get saved, but that shouldn't matter
-		return &User{}
-	case err != nil:
-		log.Fatal(err)
-	}
-	return &User{Email: email}
-}
-
 func home(w http.ResponseWriter, r *http.Request) {
-	session, err := store.Get(r, cookie_name)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	user := getUser(session)
+	user := r.Context().Value("user")
 	t.ExecuteTemplate(w, "home.tmpl", user)
 }
 
+func GetSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, err := (*store).Get(r, cookie_name)
+		var user *User
+		if err != nil {
+			if e, ie := err.(securecookie.Error); ie && e.IsDecode() {
+				// pass --
+				// (*store).Options.MaxAge = -1
+				// delete(*store, cookie_name)
+			} else {
+				http.Error(w, err.Error()+" (cookie error)", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			id, exists := session.Values["user_id"]
+			if !exists {
+				goto anywayyy
+			}
+			stmt, err := db.Prepare("SELECT email FROM users WHERE id = ?")
+			if err != nil {
+				http.Error(w, err.Error()+" (sql statement error)", http.StatusInternalServerError)
+				return
+			}
+			defer stmt.Close()
+
+			var email string
+			err = stmt.QueryRow(id).Scan(&email)
+			if err == sql.ErrNoRows {
+				// no user with this id??
+				delete(session.Values, "user_id")
+				goto anywayyy
+			} else if err != nil {
+				http.Error(w, err.Error()+" (sql query error???)", http.StatusInternalServerError)
+				return
+			}
+			user = &User{Email: email}
+		}
+	anywayyy:
+		r = r.WithContext(context.WithValue(r.Context(), "user", user))
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
+	_, err := rand.Read(key[:])
+	if err != nil {
+		panic(err)
+	}
+
+	store = sessions.NewCookieStore(key[:])
+
 	t = template.Must(template.ParseGlob("templates/*.tmpl"))
 
 	db_, err := sql.Open("sqlite3", "./accounts.db")
@@ -192,6 +217,8 @@ func main() {
 	db = db_
 
 	r := mux.NewRouter()
+	r.Use(GetSession)
+
 	r.HandleFunc("/", home)
 	r.HandleFunc("/signup", signup)
 	r.HandleFunc("/login", login)

@@ -6,8 +6,9 @@
 </head>
 <body>
 <header>
-  <h1>beep beep</h1>
-  {{ if ne . nil }}
+  <h1>beep beep {{ . }}</h1>
+  {{ if . }}
+    wat
     {{ .Email }}
   {{ else }}
     nah i guess na {{ . }} (asdfasdf)
