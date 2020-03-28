@@ -1,5 +1,8 @@
 {{ range . }}
-    <p>domain... {{ . }}</p>
+    <div class="domain">
+        <h3><a href="/host/{{ .Host }}">{{ .Host }}</a></h3>
+        <p>{{ .Key }}</p>
+    </div>
 {{ else }}
     <p>no domains.</p>
 {{ end }}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
-	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
@@ -144,6 +143,7 @@ func logout(w http.ResponseWriter, r *http.Request) {
 
 type Domain struct {
 	Host string
+	Key  string
 }
 
 type NewDomainPageContext struct {
@@ -214,8 +214,7 @@ func home(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error()+" (while getting domains)", http.StatusInternalServerError)
 				return
 			}
-			fmt.Println("row", host, key)
-			domains = append(domains, Domain{Host: host})
+			domains = append(domains, Domain{Host: host, Key: key})
 		}
 
 	}
