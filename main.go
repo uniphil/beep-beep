@@ -162,7 +162,7 @@ func new_domain(w http.ResponseWriter, r *http.Request) {
 	}
 	host := normalizeHost(r.FormValue("host"))
 
-	stmt, err := db.Prepare("INSERT INTO domains(host, account) values(?,?)")
+	stmt, err := db.Prepare("INSERT INTO domains(host, user_id) values(?,?)")
 	if err != nil {
 		http.Error(w, err.Error()+" (while setting up db query)", http.StatusInternalServerError)
 		return
@@ -193,7 +193,7 @@ func home(w http.ResponseWriter, r *http.Request) {
 	var domains []Domain
 	user, _ := r.Context().Value("user").(*User)
 	if user != nil {
-		stmt, err := db.Prepare("SELECT id, host, key FROM domains WHERE account = ?")
+		stmt, err := db.Prepare("SELECT host, key FROM domains WHERE user_id = ?")
 		if err != nil {
 			http.Error(w, err.Error()+" (while setting up db query)", http.StatusInternalServerError)
 			return
@@ -207,15 +207,14 @@ func home(w http.ResponseWriter, r *http.Request) {
 		}
 		domains = make([]Domain, 0)
 		for rows.Next() {
-			var id int64
 			var host string
 			var key string
-			err = rows.Scan(&id, &host, &key)
+			err = rows.Scan(&host, &key)
 			if err != nil {
 				http.Error(w, err.Error()+" (while getting domains)", http.StatusInternalServerError)
 				return
 			}
-			fmt.Println("row", id, host, key)
+			fmt.Println("row", host, key)
 			domains = append(domains, Domain{Host: host})
 		}
 
