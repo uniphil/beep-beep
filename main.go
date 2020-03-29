@@ -64,8 +64,9 @@ func signup(w http.ResponseWriter, r *http.Request) {
 
 	res, err := stmt.Exec(email, pw_hash)
 	if err != nil {
-		if err.Error() == "UNIQUE constraint failed: users.email" {
-			http.Error(w, "Email already exists", http.StatusForbidden)
+		if err.Error() == "UNIQUE constraint failed: users.email" { // user exists
+			http.Redirect(w, r, "/login", http.StatusTemporaryRedirect) // 307 maintains POST
+			return
 		} else {
 			http.Error(w, "Error while trying to create account— "+err.Error(), http.StatusForbidden)
 		}
