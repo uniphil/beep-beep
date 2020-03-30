@@ -197,6 +197,15 @@ func new_domain(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+var account_detail = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
+	err := t.ExecuteTemplate(w, "account_detail.tmpl", map[string]interface{}{
+		"User": u,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+})
+
 var domain_detail = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
 	vars := mux.Vars(r)
 	err := t.ExecuteTemplate(w, "domain_detail.tmpl", map[string]interface{}{
@@ -390,11 +399,12 @@ func main() {
 
 	r.HandleFunc("/", home)
 	r.HandleFunc("/about", static_template)
+	r.HandleFunc("/account", account_detail)
 	r.HandleFunc("/contact", static_template)
+	r.HandleFunc("/domains/{host}", domain_detail)
 	r.HandleFunc("/login", login)
 	r.HandleFunc("/logout", logout)
 	r.HandleFunc("/new-domain", new_domain)
-	r.HandleFunc("/domains/{host}", domain_detail)
 	r.HandleFunc("/pricing", static_template)
 	r.HandleFunc("/privacy", static_template)
 	r.HandleFunc("/signup", signup)
