@@ -295,5 +295,7 @@ func main() {
 	r.HandleFunc("/new-domain", new_domain)
 	r.PathPrefix("/static/").Handler(
 		http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
+	r.PathPrefix("/").Handler(
+		http.FileServer(http.Dir("static/_root/")))
 	http.ListenAndServe(":8080", r)
 }

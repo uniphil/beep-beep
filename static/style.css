@@ -1,3 +1,14 @@
-body {
-  font-family: sans-serif;
+body > header {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+}
+
+body > header > nav > ul {
+  display: flex;
+  list-style-type: none;
+}
+
+body > header > nav > ul > li {
+  margin-left: 1em;
 }
