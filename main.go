@@ -293,5 +293,7 @@ func main() {
 	r.HandleFunc("/login", login)
 	r.HandleFunc("/logout", logout)
 	r.HandleFunc("/new-domain", new_domain)
+	r.PathPrefix("/static/").Handler(
+		http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
 	http.ListenAndServe(":8080", r)
 }
