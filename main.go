@@ -273,6 +273,13 @@ func GetSession(next http.Handler) http.Handler {
 	})
 }
 
+func Cache(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "max-age=31536000") // 365 days
+		h.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	_, err := rand.Read(key[:])
 	if err != nil {
@@ -294,8 +301,8 @@ func main() {
 	r.HandleFunc("/logout", logout)
 	r.HandleFunc("/new-domain", new_domain)
 	r.PathPrefix("/static/").Handler(
-		http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
+		Cache(http.StripPrefix("/static/", http.FileServer(http.Dir("static/")))))
 	r.PathPrefix("/").Handler(
-		http.FileServer(http.Dir("static/_root/")))
+		Cache(http.FileServer(http.Dir("static/_root/"))))
 	http.ListenAndServe(":8080", r)
 }

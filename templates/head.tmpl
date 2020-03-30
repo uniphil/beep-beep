@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <title>beep beep! traffic counter, privacy-first</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="beep-beep.net provides web traffic estimates with zero hassle and privacy for visitors. We've honed a super-fast light-weight design focused on the most useful information. Since we're JavaScript-free and DNT-compliant, ad-blockers don't affect our stats." />
   <link rel="stylesheet" href="/static/light.min.css" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
@@ -13,7 +14,7 @@
     <nav>
       <ul>
         {{ if . }}
-          <li>{{ .Email }}</li>
+          <li><a href="/account">{{ .Email }}</a></li>
           <li><a href="/logout">log out</a></li>
         {{ else }}
           <li><a href="/pricing">pricing</a></li>
