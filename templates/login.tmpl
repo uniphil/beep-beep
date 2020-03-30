@@ -1,5 +1,6 @@
 {{ template "head.tmpl" }}
 <form action="/login" method="post">
+  {{ .csrfField }}
   <p><input type="email" name="email" /></p>
   <p><input type="password" name="password" /></p>
   <p><button type="submit">Log in</button></p>

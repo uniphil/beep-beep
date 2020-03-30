@@ -2,6 +2,6 @@
 {{ if .User }}
     {{ template "domains.tmpl" .Domains }}
 {{ else }}
-    {{ template "signup_form.tmpl" }}
+    {{ template "signup_form.tmpl" . }}
 {{ end }}
 {{ template "foot.tmpl" }}

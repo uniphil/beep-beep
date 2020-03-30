@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
@@ -11,16 +12,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"html/template"
 	"net/http"
+	"os"
 	"strings"
 )
 
 var cookie_name = "beep-beep"
 
 var (
-	key   [32]byte // key must be 16, 24 or 32 bytes long (AES-128, AES-192 or AES-256)
-	t     *template.Template
-	db    *sql.DB
-	store *sessions.CookieStore
+	csrf_key [32]byte
+	key      [32]byte // key must be 16, 24 or 32 bytes long (AES-128, AES-192 or AES-256)
+	t        *template.Template
+	db       *sql.DB
+	store    *sessions.CookieStore
 )
 
 func normalizeEmail(e string) string {
@@ -38,7 +41,9 @@ type User struct {
 
 func signup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		t.ExecuteTemplate(w, "signup.tmpl", nil)
+		t.ExecuteTemplate(w, "signup.tmpl", map[string]interface{}{
+			csrf.TemplateTag: csrf.TemplateField(r),
+		})
 		return
 	}
 	session, err := (*store).Get(r, cookie_name)
@@ -86,7 +91,9 @@ func signup(w http.ResponseWriter, r *http.Request) {
 
 func login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		t.ExecuteTemplate(w, "login.tmpl", nil)
+		t.ExecuteTemplate(w, "login.tmpl", map[string]interface{}{
+			csrf.TemplateTag: csrf.TemplateField(r),
+		})
 		return
 	}
 	session, err := (*store).Get(r, cookie_name)
@@ -147,10 +154,6 @@ type Domain struct {
 	Key  string
 }
 
-type NewDomainPageContext struct {
-	User *User
-}
-
 func new_domain(w http.ResponseWriter, r *http.Request) {
 	user, _ := r.Context().Value("user").(*User)
 	if user == nil {
@@ -158,7 +161,10 @@ func new_domain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		t.ExecuteTemplate(w, "new-domain.tmpl", NewDomainPageContext{User: user})
+		t.ExecuteTemplate(w, "new-domain.tmpl", map[string]interface{}{
+			csrf.TemplateTag: csrf.TemplateField(r),
+			"User":           user,
+		})
 		return
 	}
 	host := normalizeHost(r.FormValue("host"))
@@ -183,11 +189,6 @@ func new_domain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-type HomePageContext struct {
-	User    *User
-	Domains []Domain
 }
 
 func home(w http.ResponseWriter, r *http.Request) {
@@ -219,12 +220,11 @@ func home(w http.ResponseWriter, r *http.Request) {
 		}
 
 	}
-
-	page_context := HomePageContext{
-		User:    user,
-		Domains: domains,
-	}
-	t.ExecuteTemplate(w, "home.tmpl", page_context)
+	t.ExecuteTemplate(w, "home.tmpl", map[string]interface{}{
+		csrf.TemplateTag: csrf.TemplateField(r),
+		"User":           user,
+		"Domains":        domains,
+	})
 }
 
 func GetSession(next http.Handler) http.Handler {
@@ -285,6 +285,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	_, err = rand.Read(csrf_key[:])
+	if err != nil {
+		panic(err)
+	}
 	store = sessions.NewCookieStore(key[:])
 	t = template.Must(template.ParseGlob("templates/*.tmpl"))
 	db, err = sql.Open("sqlite3", "./accounts.db")
@@ -293,6 +297,7 @@ func main() {
 	}
 
 	r := mux.NewRouter()
+	r.Use(csrf.Protect(csrf_key[:], csrf.Secure(os.Getenv("DEV") == "")))
 	r.Use(GetSession)
 	r.HandleFunc("/", home)
 	r.HandleFunc("/signup", signup)
