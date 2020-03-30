@@ -228,6 +228,17 @@ func home(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func static_template(w http.ResponseWriter, r *http.Request) {
+	template_name := strings.TrimPrefix(r.URL.EscapedPath(), "/") + ".tmpl"
+	user, _ := r.Context().Value("user").(*User)
+	err := t.ExecuteTemplate(w, template_name, map[string]interface{}{
+		"User": user,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+	}
+}
+
 func GetSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session, err := (*store).Get(r, cookie_name)
@@ -349,11 +360,17 @@ func main() {
 	r.Use(SecurityHeaders(!DEVMODE))
 	r.Use(csrf.Protect(csrf_key[:], csrf.Secure(!DEVMODE)))
 	r.Use(GetSession)
+
 	r.HandleFunc("/", home)
-	r.HandleFunc("/signup", signup)
+	r.HandleFunc("/about", static_template)
+	r.HandleFunc("/contact", static_template)
 	r.HandleFunc("/login", login)
 	r.HandleFunc("/logout", logout)
 	r.HandleFunc("/new-domain", new_domain)
+	r.HandleFunc("/pricing", static_template)
+	r.HandleFunc("/privacy", static_template)
+	r.HandleFunc("/signup", signup)
+
 	r.PathPrefix("/static/").Handler(
 		Cache(http.StripPrefix("/static/", http.FileServer(http.Dir("static/")))))
 	r.PathPrefix("/").Handler(
