@@ -94,6 +94,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		t.ExecuteTemplate(w, "login.tmpl", map[string]interface{}{
 			csrf.TemplateTag: csrf.TemplateField(r),
+			"Next": r.URL.Query().Get("next"),
 		})
 		return
 	}
@@ -132,6 +133,10 @@ func login(w http.ResponseWriter, r *http.Request) {
 
 	session.Values["user_id"] = id
 	session.Save(r, w)
+	if next := r.URL.Query().Get("next"); next != "" {
+		http.Redirect(w, r, next, http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -190,6 +195,28 @@ func new_domain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+var domain_detail = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
+	vars := mux.Vars(r)
+	err := t.ExecuteTemplate(w, "domain_detail.tmpl", map[string]interface{}{
+		"User": u,
+		"Host": vars["host"],
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+})
+
+func require_user(h func (w http.ResponseWriter, r *http.Request, u User)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, _ := r.Context().Value("user").(*User)
+		if user == nil {
+			http.Redirect(w, r, "/login?next=" + r.URL.EscapedPath(), http.StatusFound)
+			return
+		}
+		h(w, r, *user)
+	}
 }
 
 func home(w http.ResponseWriter, r *http.Request) {
@@ -367,6 +394,7 @@ func main() {
 	r.HandleFunc("/login", login)
 	r.HandleFunc("/logout", logout)
 	r.HandleFunc("/new-domain", new_domain)
+	r.HandleFunc("/domains/{host}", domain_detail)
 	r.HandleFunc("/pricing", static_template)
 	r.HandleFunc("/privacy", static_template)
 	r.HandleFunc("/signup", signup)

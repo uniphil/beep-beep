@@ -1,5 +1,5 @@
 {{ template "head.tmpl" }}
-<form action="/login" method="post">
+<form action="/login{{ if .Next }}?next={{ .Next }}{{end}}" method="post">
   {{ .csrfField }}
   <p><input type="email" name="email" /></p>
   <p><input type="password" name="password" /></p>
