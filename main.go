@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 var cookie_name = "beep-beep"
@@ -198,8 +199,24 @@ func new_domain(w http.ResponseWriter, r *http.Request) {
 }
 
 var account_detail = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
-	err := t.ExecuteTemplate(w, "account_detail.tmpl", map[string]interface{}{
+	stmt, err := db.Prepare("SELECT created, email_verified FROM users WHERE id = ?")
+	if err != nil {
+		http.Error(w, err.Error()+" (sql statement error)", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	var created time.Time
+	var email_verified sql.NullTime
+	err = stmt.QueryRow(u.Id).Scan(&created, &email_verified)
+	if err != nil {
+		http.Error(w, err.Error()+" (sql query error)", http.StatusInternalServerError)
+		return
+	}
+	err = t.ExecuteTemplate(w, "account_detail.tmpl", map[string]interface{}{
 		"User": u,
+		"Created": created,
+		"Verified": email_verified.Valid,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -363,7 +380,7 @@ func SecurityHeaders(strict bool) func(h http.Handler) http.Handler {
 						"sync-script 'none';"+
 						"sync-xhr 'none';"+
 						"encrypted-media 'none';"+
-						"vertical-scroll 'none';")
+						"vertical-scroll 'none'")
 			}
 			h.ServeHTTP(w, r)
 		})
