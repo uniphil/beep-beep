@@ -281,6 +281,48 @@ func Cache(h http.Handler) http.Handler {
 	})
 }
 
+func SecurityHeaders(strict bool) func(h http.Handler) http.Handler {
+	return func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-XSS-Protection", "1; mode=block")
+			w.Header().Set("Referrer-Policy", "same-origin")
+			if strict {
+				w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src https://beep-beep.net; style-src https://beep-beep.net; img-src https://beep-beep.net https://visit.beep-beep.net; connect-src https://beep-beep.net; prefetch-src https://beep-beep.net https://visit.beep-beep.net; block-all-mixed-content; disown-opener")
+				w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+				w.Header().Set("Feature-Policy",
+					// never annoy
+					"autoplay 'none';"+
+						"speaker 'none';"+
+						"midi 'none';"+
+						// trust
+						"camera 'none';"+
+						"microphone 'none';"+
+						"usb 'none';"+
+						"geolocation 'none';"+
+						"gyroscope 'none';"+
+						"ambient-light-sensor 'none';"+
+						"vr 'none';"+
+						// security-ish
+						"document-write 'none';"+
+						"fullscreen 'none';"+
+						"document-domain 'none';"+
+						"display-capture 'none';"+
+						// bee good"
+						"unsized-media 'none';"+
+						"unoptimized-images 'none';"+
+						"oversized-images 'none';"+
+						"sync-script 'none';"+
+						"sync-xhr 'none';"+
+						"encrypted-media 'none';"+
+						"vertical-scroll 'none';")
+			}
+			h.ServeHTTP(w, r)
+		})
+	}
+}
+
 func main() {
 	DEVMODE := os.Getenv("DEV") != ""
 	_, err := rand.Read(key[:])
@@ -304,7 +346,7 @@ func main() {
 
 	r := mux.NewRouter()
 	r.Use(handlers.RecoveryHandler())
-	// r.Use(SecurityHeaders(!DEVMODE))
+	r.Use(SecurityHeaders(!DEVMODE))
 	r.Use(csrf.Protect(csrf_key[:], csrf.Secure(!DEVMODE)))
 	r.Use(GetSession)
 	r.HandleFunc("/", home)
