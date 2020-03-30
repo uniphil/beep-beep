@@ -287,11 +287,10 @@ func main() {
 	}
 	store = sessions.NewCookieStore(key[:])
 	t = template.Must(template.ParseGlob("templates/*.tmpl"))
-	db_, err := sql.Open("sqlite3", "./accounts.db")
+	db, err = sql.Open("sqlite3", "./accounts.db")
 	if err != nil {
 		panic(err)
 	}
-	db = db_
 
 	r := mux.NewRouter()
 	r.Use(GetSession)
