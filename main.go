@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"github.com/gorilla/csrf"
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
@@ -281,6 +282,7 @@ func Cache(h http.Handler) http.Handler {
 }
 
 func main() {
+	DEVMODE := os.Getenv("DEV") != ""
 	_, err := rand.Read(key[:])
 	if err != nil {
 		panic(err)
@@ -290,6 +292,10 @@ func main() {
 		panic(err)
 	}
 	store = sessions.NewCookieStore(key[:])
+	store.Options.HttpOnly = true
+	if !DEVMODE {
+		store.Options.Secure = true
+	}
 	t = template.Must(template.ParseGlob("templates/*.tmpl"))
 	db, err = sql.Open("sqlite3", "./accounts.db")
 	if err != nil {
@@ -297,7 +303,9 @@ func main() {
 	}
 
 	r := mux.NewRouter()
-	r.Use(csrf.Protect(csrf_key[:], csrf.Secure(os.Getenv("DEV") == "")))
+	r.Use(handlers.RecoveryHandler())
+	// r.Use(SecurityHeaders(!DEVMODE))
+	r.Use(csrf.Protect(csrf_key[:], csrf.Secure(!DEVMODE)))
 	r.Use(GetSession)
 	r.HandleFunc("/", home)
 	r.HandleFunc("/signup", signup)
