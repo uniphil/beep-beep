@@ -1,3 +1,13 @@
 {{ template "head.tmpl" .User }}
-detaiiiiils for {{ .Host }}
+
+Add the following snippet before the closing <code>&lt;/body&gt;</code> tag to count traffic at {{ .Host }}.
+
+<pre><code>&lt;img
+    alt="beep-beep traffic counter"
+    aria-hidden="true"
+    referrerpolicy="no-referrer-when-downgrade"
+    src="https://visit.beep-beep.net/<var>{{ .Key }}</var>.gif"
+    style="position: absolute; left:-9999em" /&gt;
+</pre></code>
+
 {{ template "foot.tmpl" }}

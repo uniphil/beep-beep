@@ -30,6 +30,10 @@ body > header > nav > ul > li {
   margin-left: 1em;
 }
 
+body > footer {
+  margin-top: 3em;
+}
+
 .flex {
   display: flex;
 }

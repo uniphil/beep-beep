@@ -95,7 +95,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		t.ExecuteTemplate(w, "login.tmpl", map[string]interface{}{
 			csrf.TemplateTag: csrf.TemplateField(r),
-			"Next": r.URL.Query().Get("next"),
+			"Next":           r.URL.Query().Get("next"),
 		})
 		return
 	}
@@ -214,8 +214,8 @@ var account_detail = require_user(func(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	err = t.ExecuteTemplate(w, "account_detail.tmpl", map[string]interface{}{
-		"User": u,
-		"Created": created,
+		"User":     u,
+		"Created":  created,
 		"Verified": email_verified.Valid,
 	})
 	if err != nil {
@@ -224,21 +224,37 @@ var account_detail = require_user(func(w http.ResponseWriter, r *http.Request, u
 })
 
 var domain_detail = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
-	vars := mux.Vars(r)
-	err := t.ExecuteTemplate(w, "domain_detail.tmpl", map[string]interface{}{
+	host := mux.Vars(r)["host"]
+
+	stmt, err := db.Prepare("SELECT key FROM domains WHERE host=? and user_id=?")
+	if err != nil {
+		http.Error(w, err.Error()+" (while setting up db query)", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	var key string
+	err = stmt.QueryRow(host, u.Id).Scan(&key)
+	if err != nil {
+		http.Error(w, "Error while looking up domain: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = t.ExecuteTemplate(w, "domain_detail.tmpl", map[string]interface{}{
 		"User": u,
-		"Host": vars["host"],
+		"Host": host,
+		"Key":  key,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 })
 
-func require_user(h func (w http.ResponseWriter, r *http.Request, u User)) http.HandlerFunc {
+func require_user(h func(w http.ResponseWriter, r *http.Request, u User)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, _ := r.Context().Value("user").(*User)
 		if user == nil {
-			http.Redirect(w, r, "/login?next=" + r.URL.EscapedPath(), http.StatusFound)
+			http.Redirect(w, r, "/login?next="+r.URL.EscapedPath(), http.StatusFound)
 			return
 		}
 		h(w, r, *user)
