@@ -1,7 +1,24 @@
 body > header {
-  align-items: baseline;
+  align-items: flex-end;
   display: flex;
   justify-content: space-between;
+  margin-bottom: 3em;
+}
+body > header > .site-name > h1 {
+  transform: rotate(-7deg);
+}
+body > header > .site-name {
+  margin-left: -1em;
+  position: relative;
+}
+body > header > .site-name > h1 > a {
+  color: #1bd66d;
+}
+body > header > .site-name > p {
+  bottom: 0;
+  left: calc(100% + 1em);
+  position: absolute;
+  width: max-content;
 }
 
 body > header > nav > ul {
@@ -11,4 +28,21 @@ body > header > nav > ul {
 
 body > header > nav > ul > li {
   margin-left: 1em;
+}
+
+.flex {
+  display: flex;
+}
+.flex-wrap {
+  flex-wrap: wrap;
+}
+
+.align-self-end {
+  align-self: flex-end;
+}
+
+button.primary {
+  background: #1bd66d;
+  color: #fff;
+  font-weight: bold;
 }

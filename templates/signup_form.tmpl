@@ -1,6 +1,16 @@
 <form action="/signup" method="post">
   {{ .csrfField }}
-  <p><input type="email" name="email" /></p>
-  <p><input type="password" name="password" /></p>
-  <p><button type="submit">Sign up</button></p>
+  <div class="flex flex-wrap">
+    <div>
+      <label for="email">Email</label>
+      <input type="email" name="email" placeholder="you@example.com" required />
+    </div>
+    <div>
+      <label for="password">Password</label>
+      <input type="password" name="password" placeholder="••••••••" required />
+    </div>
+    <div class="align-self-end">
+      <button class="primary" type="submit">Sign up / Log in</button>
+    </div>
+  </div>
 </form>

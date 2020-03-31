@@ -3,6 +3,8 @@
 <p>detaiiiiils for {{ .User.Email }}, created {{ .Created }}.</p>
 <p>{{ if .Verified }}Verified.{{ else }} Not verified.{{ end }}</p>
 
+<p><a href="/logout">Log out</a></p>
+
 <p><a href="/account/change-password">change password</a></p>
 <p><a href="/account/delete">delete account</a></p>
 {{ template "foot.tmpl" }}
