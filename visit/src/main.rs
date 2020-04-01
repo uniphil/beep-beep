@@ -1,5 +1,5 @@
 use std::collections::hash_map::DefaultHasher;
-use std::convert::Infallible;
+use std::convert::{Infallible, TryInto};
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 use hyper::{Body, Method, Request, Response, Server, StatusCode, Uri, http};
@@ -19,7 +19,20 @@ static BAD_PIXEL: &[u8] = &[
     0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b,
 ];
 
-fn visitor(req: &Request<Body>) -> Option<(Option<u64>, String, String)> {
+// fn get_key<'a>(req: &'a Request<Body>) -> Option<[u8; 16]> {
+
+// }
+
+fn visitor(req: &Request<Body>) -> Option<([u8; 16], Option<u64>, String, String)> {
+    if req.method() != &Method::GET {
+        return None
+    };
+    let key: [u8; 16] = match req.uri().path().as_bytes() {
+        [b'/', k @ .., b'.', b'g', b'i', b'f'] =>
+            if let (true, Ok(k_)) = (k.is_ascii(), k.try_into()) {
+                k_ } else { return None }
+        _ => { return None }
+    };
     let headers = req.headers();
     let dnt = headers.get("dnt").map_or(false, |v| v == "1");
     let identifier = if false && dnt { None } else {
@@ -27,7 +40,7 @@ fn visitor(req: &Request<Body>) -> Option<(Option<u64>, String, String)> {
             .and_then(|v| v.to_str().ok())
             .unwrap_or_else(|| {
                 eprintln!("missing x-forwarded-for");
-                "127.0.0.1"
+                "127.0.0.1"  // handle better in production
             });
         let ua = match headers.get("user-agent").and_then(|v| v.to_str().ok()) {
             Some(v) => v,
@@ -46,23 +59,17 @@ fn visitor(req: &Request<Body>) -> Option<(Option<u64>, String, String)> {
             } else { return None },  // we need to know the host!
         None => { return None },  // no referrer: can't know what to do with this req
     };
-    Some((identifier, host, path))
+    Some((key, identifier, host, path))
 }
 
 async fn handle(req: Request<Body>) -> http::Result<Response<Body>> {
-    if req.method() == &Method::GET {
-        let p = req.uri().path();
-        if p.is_ascii() && p.starts_with("/") && p.ends_with(".gif") && p.len() == (1 + 16 + 4) {
-            let key = &p[1..17];
-            if let Some((identifier, host, path)) = visitor(&req) {
-                println!("{:?} {:?} {:?} {:?}", key, host, path, identifier);
-                return Response::builder()
-                    .header("Content-Type", "image/gif")
-                    .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-                    .header("Pragma", "no-cache")
-                    .body(Body::from(HELLO_PIXEL))
-            }
-        }
+    if let Some((key, identifier, host, path)) = visitor(&req) {
+        println!("{:?} {:?} {:?} {:?}", key, host, path, identifier);
+        return Response::builder()
+            .header("Content-Type", "image/gif")
+            .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            .header("Pragma", "no-cache")
+            .body(Body::from(HELLO_PIXEL))
     }
     Response::builder()
         .header("Content-Type", "image/gif")
