@@ -446,5 +446,10 @@ func main() {
 		Cache(http.StripPrefix("/static/", http.FileServer(http.Dir("static/")))))
 	r.PathPrefix("/").Handler(
 		Cache(http.FileServer(http.Dir("static/_root/"))))
-	http.ListenAndServe(":8080", r)
+
+	host := "0.0.0.0"
+	if DEVMODE {
+		host = "localhost"
+	}
+	http.ListenAndServe(host+":8080", r)
 }
