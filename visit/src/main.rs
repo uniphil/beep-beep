@@ -4,11 +4,12 @@ use std::error::Error;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
+use std::ops::Deref;
 use std::time::Instant;
 use chrono::{Datelike, Local};
 use hyper::{Body, Method, Request, Response, Server, StatusCode, Uri, http};
 use hyper::service::{make_service_fn, service_fn};
-use redis::{AsyncCommands, RedisError, RedisWrite, ToRedisArgs};
+use redis::{AsyncCommands, RedisError};
 
 static HELLO_PIXEL: &[u8] = &[
     // 💜                                                                       //R     G     B
@@ -37,10 +38,10 @@ impl TryFrom<&[u8]> for Key {
         value.try_into().map(|arr: &[u8; 16]| Key(*arr))
     }
 }
-impl ToRedisArgs for Key {
-    fn write_redis_args<W>(&self, out: &mut W)
-    where W: ?Sized + RedisWrite {
-        ToRedisArgs::write_redis_args(&&self.0, out)
+impl Deref for Key {
+    type Target = [u8; 16];
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -150,10 +151,17 @@ async fn count<'a>(key: Key, identifier: Option<u64>, host: &'a str, path: &'a s
 
 async fn handle(req: Request<Body>) -> http::Result<Response<Body>> {
     let t0 = Instant::now();
+    let rv = handle_inner(req).await;
+    println!("{}us {:?}", t0.elapsed().as_micros(), match rv {
+        Ok(ref r) => format!("{}", r.status()),
+        Err(ref e) => format!("err: {}", e),
+    });
+    rv
+}
+async fn handle_inner(req: Request<Body>) -> http::Result<Response<Body>> {
     if let Some((key, identifier, host, path)) = visitor(&req) {
         match count(key, identifier, &host, &path).await {
             Ok(_) => {
-                println!("{}us: {}{}", t0.elapsed().as_micros(), host, path);
                 return Response::builder()
                     .header("Content-Type", "image/gif")
                     .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
@@ -165,7 +173,6 @@ async fn handle(req: Request<Body>) -> http::Result<Response<Body>> {
             }
         };
     }
-    println!("{}us: err", t0.elapsed().as_micros());
     Response::builder()
         .header("Content-Type", "image/gif")
         .status(StatusCode::BAD_REQUEST)
