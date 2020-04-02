@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
+use std::time::Instant;
 use chrono::{Datelike, Local};
 use hyper::{Body, Method, Request, Response, Server, StatusCode, Uri, http};
 use hyper::service::{make_service_fn, service_fn};
@@ -129,25 +130,30 @@ async fn count<'a>(key: Key, identifier: Option<u64>, host: &'a str, path: &'a s
     if let Some(id) = identifier {
         let hll_key = &format!("counts:hll:{}:{}:{}", host, date_ord, path);
         let abs_key = &format!("counts:abs:{}:{}:{}", host, date_ord, path);
-        con.pfadd(hll_key, id).await?;
-        con.incr(abs_key, 1u8).await?;
-        con.zadd(format!("counts:hlls:all:{}", host), hll_key, date_ord).await?;
-        con.zadd(format!("counts:hlls:path:{}/{}", host, path), hll_key, date_ord).await?;
-        con.zadd(format!("counts:abss:all:{}", host), abs_key, date_ord).await?;
-        con.zadd(format!("counts:abss:path:{}/{}", host, path), abs_key, date_ord).await?;
+        redis::pipe()
+            .pfadd(hll_key, id).ignore()
+            .incr(abs_key, 1u8).ignore()
+            .zadd(format!("counts:hlls:all:{}", host), hll_key, date_ord).ignore()
+            .zadd(format!("counts:hlls:path:{}/{}", host, path), hll_key, date_ord).ignore()
+            .zadd(format!("counts:abss:all:{}", host), abs_key, date_ord).ignore()
+            .zadd(format!("counts:abss:path:{}/{}", host, path), abs_key, date_ord).ignore()
+            .query_async(&mut con).await?;
     } else {
         let dnt_key = &format!("counts:abs:{}:{}", host, date_ord);
-        con.incr(dnt_key, 1u8).await?;
-        con.zadd(format!("counts:dnt:{}", host), dnt_key, date_ord).await?;
+        redis::pipe()
+            .incr(dnt_key, 1u8).ignore()
+            .zadd(format!("counts:dnt:{}", host), dnt_key, date_ord).ignore()
+            .query_async(&mut con).await?;
     }
     Ok(())
 }
 
 async fn handle(req: Request<Body>) -> http::Result<Response<Body>> {
+    let t0 = Instant::now();
     if let Some((key, identifier, host, path)) = visitor(&req) {
-        println!("{:?} {:?} {:?} {:?}", key, host, path, identifier);
         match count(key, identifier, &host, &path).await {
             Ok(_) => {
+                println!("{}us: {}{}", t0.elapsed().as_micros(), host, path);
                 return Response::builder()
                     .header("Content-Type", "image/gif")
                     .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
@@ -159,6 +165,7 @@ async fn handle(req: Request<Body>) -> http::Result<Response<Body>> {
             }
         };
     }
+    println!("{}us: err", t0.elapsed().as_micros());
     Response::builder()
         .header("Content-Type", "image/gif")
         .status(StatusCode::BAD_REQUEST)
