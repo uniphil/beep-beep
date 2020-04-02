@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
+use chrono::{Datelike, Local};
 use hyper::{Body, Method, Request, Response, Server, StatusCode, Uri, http};
 use hyper::service::{make_service_fn, service_fn};
 use redis::{AsyncCommands, RedisError, RedisWrite, ToRedisArgs};
@@ -113,15 +114,32 @@ fn visitor(req: &Request<Body>) -> Option<(Key, Option<u64>, String, String)> {
 }
 
 async fn count<'a>(key: Key, identifier: Option<u64>, host: &'a str, path: &'a str) -> Result<(), BeepBeepError<'a>> {
+    let date_ord = {
+        let today = Local::today();
+        today.year() as f32 + today.ordinal() as f32 / 1000.
+    };
     let client = redis::Client::open("redis://127.0.0.1:6379")?;
     let mut con = client.get_async_connection().await?;
-    let domain = con.hget::<_, _, Option<String>>("domain_keys", key).await?
+    let domain = con.get::<_, Option<String>>(format!("domains:{}", key)).await?
         .ok_or(BeepBeepError::key_not_found(key))?;
     if &domain != host {
         return Err(BeepBeepError::wrong_domain(key, host))
     }
 
-    println!("{:?} {} {}", identifier, &host, path);
+    if let Some(id) = identifier {
+        let hll_key = &format!("counts:hll:{}:{}:{}", host, date_ord, path);
+        let abs_key = &format!("counts:abs:{}:{}:{}", host, date_ord, path);
+        con.pfadd(hll_key, id).await?;
+        con.incr(abs_key, 1u8).await?;
+        con.zadd(format!("counts:hlls:all:{}", host), hll_key, date_ord).await?;
+        con.zadd(format!("counts:hlls:path:{}/{}", host, path), hll_key, date_ord).await?;
+        con.zadd(format!("counts:abss:all:{}", host), abs_key, date_ord).await?;
+        con.zadd(format!("counts:abss:path:{}/{}", host, path), abs_key, date_ord).await?;
+    } else {
+        let dnt_key = &format!("counts:abs:{}:{}", host, date_ord);
+        con.incr(dnt_key, 1u8).await?;
+        con.zadd(format!("counts:dnt:{}", host), dnt_key, date_ord).await?;
+    }
     Ok(())
 }
 
