@@ -150,15 +150,6 @@ async fn count<'a>(key: Key, identifier: Option<u64>, host: &'a str, path: &'a s
 }
 
 async fn handle(req: Request<Body>) -> http::Result<Response<Body>> {
-    let t0 = Instant::now();
-    let rv = handle_inner(req).await;
-    println!("{}us {:?}", t0.elapsed().as_micros(), match rv {
-        Ok(ref r) => format!("{}", r.status()),
-        Err(ref e) => format!("err: {}", e),
-    });
-    rv
-}
-async fn handle_inner(req: Request<Body>) -> http::Result<Response<Body>> {
     if let Some((key, identifier, host, path)) = visitor(&req) {
         match count(key, identifier, &host, &path).await {
             Ok(_) => {
@@ -189,7 +180,15 @@ async fn shutdown_signal() {
 async fn main() {
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let make_service = make_service_fn(|_conn| async {
-        Ok::<_, Infallible>(service_fn(handle))
+        Ok::<_, Infallible>(service_fn(|req| async {
+            let t0 = Instant::now();
+            let rv = handle(req).await;
+            println!("{}us {:?}", t0.elapsed().as_micros(), match rv {
+                Ok(ref r) => format!("{}", r.status()),
+                Err(ref e) => format!("err: {}", e),
+            });
+            rv
+        }))
     });
     let server = Server::bind(&addr).serve(make_service);
     let graceful = server.with_graceful_shutdown(shutdown_signal());
