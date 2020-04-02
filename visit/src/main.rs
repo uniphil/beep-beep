@@ -9,7 +9,10 @@ use std::time::Instant;
 use chrono::{Datelike, Local};
 use hyper::{Body, Method, Request, Response, Server, StatusCode, Uri, http};
 use hyper::service::{make_service_fn, service_fn};
-use redis::{AsyncCommands, RedisError};
+use redis::RedisError;
+use rusqlite::{params, ToSql};
+use rusqlite::types::ToSqlOutput;
+
 
 static HELLO_PIXEL: &[u8] = &[
     // 💜                                                                       //R     G     B
@@ -44,35 +47,37 @@ impl Deref for Key {
         &self.0
     }
 }
-
-#[derive(Debug)]
-enum BeepBeepError<'a> {
-    Redis(RedisError),
-    KeyNotFound(Key),
-    WrongDomain((Key, &'a str)),
-}
-
-impl<'a> BeepBeepError<'a> {
-    fn key_not_found(key: Key) -> Self {
-        BeepBeepError::KeyNotFound(key)
-    }
-    fn wrong_domain(key: Key, tried_domain: &'a str) -> Self {
-        BeepBeepError::WrongDomain((key, tried_domain))
-    }
-}
-impl<'a> fmt::Display for BeepBeepError<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &*self {
-            BeepBeepError::Redis(ref err) => err.fmt(f),
-            BeepBeepError::KeyNotFound(key) => write!(f, "Key not found: '{}'", key),
-            BeepBeepError::WrongDomain((key, ref domain)) => write!(f, "Domain '{}' can't be counted for key '{}'", domain, key),
+impl ToSql for Key {
+    fn to_sql(&self) -> Result<ToSqlOutput, rusqlite::Error> {
+        match std::str::from_utf8(&self.0) {
+            Ok(s) => Ok(ToSqlOutput::Owned(rusqlite::types::Value::Text(s.to_string()))),
+            Err(e) => Err(rusqlite::Error::Utf8Error(e)),
         }
     }
 }
-impl<'a> Error for BeepBeepError<'a> {}
-impl<'a> From<RedisError> for BeepBeepError<'a> {
-    fn from(err: RedisError) -> BeepBeepError<'a> {
+
+#[derive(Debug)]
+enum BeepBeepError {
+    Redis(RedisError),
+    Sqlite(rusqlite::Error),
+}
+impl<'a> fmt::Display for BeepBeepError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &*self {
+            BeepBeepError::Redis(ref err) => err.fmt(f),
+            BeepBeepError::Sqlite(ref err) => err.fmt(f),
+        }
+    }
+}
+impl Error for BeepBeepError {}
+impl From<RedisError> for BeepBeepError {
+    fn from(err: RedisError) -> BeepBeepError {
         BeepBeepError::Redis(err)
+    }
+}
+impl From<rusqlite::Error> for BeepBeepError {
+    fn from(err: rusqlite::Error) -> BeepBeepError {
+        BeepBeepError::Sqlite(err)
     }
 }
 
@@ -115,18 +120,18 @@ fn visitor(req: &Request<Body>) -> Option<(Key, Option<u64>, String, String)> {
     Some((key, identifier, host, path))
 }
 
-async fn count<'a>(key: Key, identifier: Option<u64>, host: &'a str, path: &'a str) -> Result<(), BeepBeepError<'a>> {
+async fn count<'a>(key: Key, identifier: Option<u64>, host: &'a str, path: &'a str) -> Result<(), BeepBeepError> {
+    rusqlite::Connection::open_with_flags("../accounts.db", rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?
+        .query_row("SELECT * FROM domains WHERE host = ? AND key = ?",
+            params![host, key], |_| Ok(()))?;
+
     let date_ord = {
         let today = Local::today();
         today.year() as f32 + today.ordinal() as f32 / 1000.
     };
+
     let client = redis::Client::open("redis://127.0.0.1:6379")?;
     let mut con = client.get_async_connection().await?;
-    let domain = con.get::<_, Option<String>>(format!("domains:{}", key)).await?
-        .ok_or(BeepBeepError::key_not_found(key))?;
-    if &domain != host {
-        return Err(BeepBeepError::wrong_domain(key, host))
-    }
 
     if let Some(id) = identifier {
         let hll_key = &format!("counts:hll:{}:{}:{}", host, date_ord, path);
@@ -160,7 +165,7 @@ async fn handle(req: Request<Body>) -> http::Result<Response<Body>> {
                     .body(Body::from(HELLO_PIXEL))
             },
             Err(e) => {
-                eprintln!("error counting: {}", e);
+                eprintln!("Error from count(): {:?}", e);
             }
         };
     }
