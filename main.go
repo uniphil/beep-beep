@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/go-redis/redis"
 	"golang.org/x/crypto/bcrypt"
 	"html/template"
 	"net/http"
@@ -25,6 +26,7 @@ var (
 	key      [32]byte // key must be 16, 24 or 32 bytes long (AES-128, AES-192 or AES-256)
 	t        *template.Template
 	db       *sql.DB
+	rdb	 *redis.Client
 	store    *sessions.CookieStore
 )
 
@@ -156,11 +158,6 @@ func logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-type Domain struct {
-	Host string
-	Key  string
-}
-
 func new_domain(w http.ResponseWriter, r *http.Request) {
 	user, _ := r.Context().Value("user").(*User)
 	if user == nil {
@@ -261,6 +258,12 @@ func require_user(h func(w http.ResponseWriter, r *http.Request, u User)) http.H
 	}
 }
 
+type Domain struct {
+	Host string
+	Key  string
+	Hits int64
+}
+
 func home(w http.ResponseWriter, r *http.Request) {
 	var domains []Domain
 	user, _ := r.Context().Value("user").(*User)
@@ -286,7 +289,22 @@ func home(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error()+" (while getting domains)", http.StatusInternalServerError)
 				return
 			}
-			domains = append(domains, Domain{Host: host, Key: key})
+			var hll_hits int64
+			hlls, err := rdb.ZRangeByScore("counts:hlls:all:" + host, redis.ZRangeBy{
+				Min: "2020",
+				Max: "2021",
+			}).Result()
+			if err == nil {
+				hll_total, err := rdb.PFCount(hlls...).Result()
+				if err == nil {
+					hll_hits += hll_total
+				}
+			}
+			domains = append(domains, Domain{
+				Host: host,
+				Hits: hll_hits,
+				Key: key,
+			})
 		}
 
 	}
@@ -423,6 +441,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	rdb = redis.NewClient(&redis.Options{})
 
 	r := mux.NewRouter()
 	r.Use(handlers.RecoveryHandler())

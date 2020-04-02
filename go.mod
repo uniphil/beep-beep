@@ -3,6 +3,7 @@ module beep-beep
 go 1.14
 
 require (
+	github.com/go-redis/redis v6.15.7+incompatible // indirect
 	github.com/gorilla/csrf v1.6.2
 	github.com/gorilla/handlers v1.4.2
 	github.com/gorilla/mux v1.7.4
