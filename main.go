@@ -307,7 +307,6 @@ func home(w http.ResponseWriter, r *http.Request) {
 					visitors_estimate += hll_total
 				}
 			}
-			fmt.Println("estimated non-dnt visitors", visitors_estimate)
 
 			var visits int64
 			counts, err := rdb.ZRangeByScore("counts:abss:all:"+host, date_range).Result()
@@ -322,7 +321,6 @@ func home(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			fmt.Println("visits", visits)
 
 			var dnt_visits int64
 			dnts, err := rdb.ZRangeByScore("counts:dnt:"+host, date_range).Result()
@@ -337,7 +335,6 @@ func home(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			fmt.Println("dnt visits", dnt_visits)
 
 			dnt_rate_estimate := 1.0
 			if visits > 0 {
