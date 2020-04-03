@@ -4,17 +4,20 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"fmt"
+	"github.com/go-redis/redis"
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/go-redis/redis"
 	"golang.org/x/crypto/bcrypt"
 	"html/template"
+	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -26,7 +29,7 @@ var (
 	key      [32]byte // key must be 16, 24 or 32 bytes long (AES-128, AES-192 or AES-256)
 	t        *template.Template
 	db       *sql.DB
-	rdb	 *redis.Client
+	rdb      *redis.Client
 	store    *sessions.CookieStore
 )
 
@@ -259,9 +262,10 @@ func require_user(h func(w http.ResponseWriter, r *http.Request, u User)) http.H
 }
 
 type Domain struct {
-	Host string
-	Key  string
-	Hits int64
+	Host             string
+	Key              string
+	Visits           int64
+	VisitorsEstimate int64
 }
 
 func home(w http.ResponseWriter, r *http.Request) {
@@ -289,21 +293,63 @@ func home(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error()+" (while getting domains)", http.StatusInternalServerError)
 				return
 			}
-			var hll_hits int64
-			hlls, err := rdb.ZRangeByScore("counts:hlls:all:" + host, redis.ZRangeBy{
+
+			date_range := redis.ZRangeBy{
 				Min: "2020",
 				Max: "2021",
-			}).Result()
-			if err == nil {
+			}
+
+			var visitors_estimate int64
+			hlls, err := rdb.ZRangeByScore("counts:hlls:all:"+host, date_range).Result()
+			if err == nil && len(hlls) > 0 {
 				hll_total, err := rdb.PFCount(hlls...).Result()
 				if err == nil {
-					hll_hits += hll_total
+					visitors_estimate += hll_total
 				}
 			}
+			fmt.Println("estimated non-dnt visitors", visitors_estimate)
+
+			var visits int64
+			counts, err := rdb.ZRangeByScore("counts:abss:all:"+host, date_range).Result()
+			if err == nil && len(counts) > 0 {
+				counters := rdb.MGet(counts...).Val()
+				if err == nil {
+					for _, counter := range counters {
+						n, err := strconv.ParseInt(counter.(string), 10, 64)
+						if err == nil {
+							visits += n
+						}
+					}
+				}
+			}
+			fmt.Println("visits", visits)
+
+			var dnt_visits int64
+			dnts, err := rdb.ZRangeByScore("counts:dnt:"+host, date_range).Result()
+			if err == nil && len(dnts) > 0 {
+				counts, err := rdb.MGet(dnts...).Result()
+				if err == nil {
+					for _, count := range counts {
+						n, err := strconv.ParseInt(count.(string), 10, 64)
+						if err == nil {
+							dnt_visits += n
+						}
+					}
+				}
+			}
+			fmt.Println("dnt visits", dnt_visits)
+
+			dnt_rate_estimate := 1.0
+			if visits > 0 {
+				dnt_rate_estimate = float64(dnt_visits) / float64(dnt_visits+visits)
+			}
+			dnt_visitors_estimate := float64(visitors_estimate) * dnt_rate_estimate
+
 			domains = append(domains, Domain{
-				Host: host,
-				Hits: hll_hits,
-				Key: key,
+				Host:             host,
+				Visits:           dnt_visits + visits,
+				VisitorsEstimate: visitors_estimate + int64(math.Round(dnt_visitors_estimate)),
+				Key:              key,
 			})
 		}
 
@@ -470,5 +516,6 @@ func main() {
 	if DEVMODE {
 		host = "localhost"
 	}
+	fmt.Println(host+".", "Dev:", DEVMODE)
 	http.ListenAndServe(host+":8080", r)
 }
