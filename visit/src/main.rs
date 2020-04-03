@@ -134,21 +134,13 @@ async fn count<'a>(key: Key, identifier: Option<u64>, host: &'a str, path: &'a s
     let mut con = client.get_async_connection().await?;
 
     if let Some(id) = identifier {
-        let hll_key = &format!("counts:hll:{}:{}:{}", host, date_bleh, path);
-        let abs_key = &format!("counts:abs:{}:{}:{}", host, date_bleh, path);
         redis::pipe()
-            .pfadd(hll_key, id).ignore()
-            .incr(abs_key, 1u8).ignore()
-            .zadd(format!("counts:hlls:all:{}", host), hll_key, date_bleh).ignore()
-            .zadd(format!("counts:hlls:path:{}:{}", host, path), hll_key, date_bleh).ignore()
-            .zadd(format!("counts:abss:all:{}", host), abs_key, date_bleh).ignore()
-            .zadd(format!("counts:abss:path:{}:{}", host, path), abs_key, date_bleh).ignore()
+            .pfadd(&format!("counts:hll:{}:{}:{}", host, date_bleh, path), id).ignore()
+            .incr(&format!("counts:abs:{}:{}:{}", host, date_bleh, path), 1u8).ignore()
             .query_async(&mut con).await?;
     } else {
-        let dnt_key = &format!("counts:abs:{}:{}", host, date_bleh);
         redis::pipe()
-            .incr(dnt_key, 1u8).ignore()
-            .zadd(format!("counts:dnt:{}", host), dnt_key, date_bleh).ignore()
+            .incr(&format!("counts:abs:{}:{}", host, date_bleh), 1u8).ignore()
             .query_async(&mut con).await?;
     }
     Ok(())
