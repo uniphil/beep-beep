@@ -23,6 +23,7 @@ import (
 )
 
 var cookie_name = "beep-beep"
+var DATE_FORMAT = "20060102"
 
 var (
 	csrf_key [32]byte
@@ -261,11 +262,29 @@ func require_user(h func(w http.ResponseWriter, r *http.Request, u User)) http.H
 	}
 }
 
+func estimate_visitors(pageviews int64, dnt_pageviews int64, visitors int64) int64 {
+	var dnt_visitors int64
+	if dnt_pageviews > 0 {
+		if pageviews > 0 {
+			dnt_rate := float64(dnt_pageviews) / float64(dnt_pageviews+pageviews)
+			dnt_visitors = int64(math.Round(float64(visitors) * dnt_rate))
+		} else {
+			dnt_visitors = 1
+		}
+	}
+	return visitors + dnt_visitors
+}
+
+type Traffic struct {
+	Visitors  int64
+	Pageviews int64
+}
+
 type Domain struct {
-	Host             string
-	Key              string
-	Visits           int64
-	VisitorsEstimate int64
+	Host         string
+	Key          string
+	Traffic      Traffic
+	DailyTraffic [30]Traffic
 }
 
 func home(w http.ResponseWriter, r *http.Request) {
@@ -284,7 +303,6 @@ func home(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Error while looking up domains domain— "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		domains = make([]Domain, 0)
 		for rows.Next() {
 			var host string
 			var key string
@@ -293,61 +311,65 @@ func home(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error()+" (while getting domains)", http.StatusInternalServerError)
 				return
 			}
-
-			date_range := redis.ZRangeBy{
-				Min: "2020",
-				Max: "2021",
+			domain := Domain{
+				Host: host,
+				Key:  key,
 			}
 
-			var visitors_estimate int64
-			hlls, err := rdb.ZRangeByScore("counts:hlls:all:"+host, date_range).Result()
-			if err == nil && len(hlls) > 0 {
-				hll_total, err := rdb.PFCount(hlls...).Result()
-				if err == nil {
-					visitors_estimate += hll_total
+			var (
+				monthly_pageviews     int64
+				monthly_dnt_pageviews int64
+				monthly_hll_keys      []string
+			)
+			now := time.Now()
+
+			for i := 0; i < 30; i++ {
+				date_key := now.Add(time.Hour * 24 * time.Duration(29-i)).Format(DATE_FORMAT)
+
+				var visitors int64
+				hll_keys, err := rdb.Keys(fmt.Sprintf("counts:hll:%s:%s:*", host, date_key)).Result()
+				if err == nil && len(hll_keys) > 0 {
+					visitors += rdb.PFCount(hll_keys...).Val()
 				}
-			}
 
-			var visits int64
-			counts, err := rdb.ZRangeByScore("counts:abss:all:"+host, date_range).Result()
-			if err == nil && len(counts) > 0 {
-				counters := rdb.MGet(counts...).Val()
-				if err == nil {
-					for _, counter := range counters {
-						n, err := strconv.ParseInt(counter.(string), 10, 64)
-						if err == nil {
-							visits += n
+				var pageviews int64
+				abs_keys, err := rdb.Keys(fmt.Sprintf("counts:abs:%s:%s:*", host, date_key)).Result()
+				if err == nil && len(abs_keys) > 0 {
+					counters := rdb.MGet(abs_keys...).Val()
+					if err == nil {
+						for _, counter := range counters {
+							n, err := strconv.ParseInt(counter.(string), 10, 64)
+							if err == nil {
+								pageviews += n
+							}
 						}
 					}
 				}
-			}
 
-			var dnt_visits int64
-			dnts, err := rdb.ZRangeByScore("counts:dnt:"+host, date_range).Result()
-			if err == nil && len(dnts) > 0 {
-				counts, err := rdb.MGet(dnts...).Result()
+				var dnt_pageviews int64
+				v, err := rdb.Get(fmt.Sprintf("counts:abs:%s:%s", host, date_key)).Result()
 				if err == nil {
-					for _, count := range counts {
-						n, err := strconv.ParseInt(count.(string), 10, 64)
-						if err == nil {
-							dnt_visits += n
-						}
+					n, err := strconv.ParseInt(v, 10, 64)
+					if err == nil {
+						dnt_pageviews += n
 					}
 				}
+
+				monthly_hll_keys = append(monthly_hll_keys, hll_keys...)
+				domain.DailyTraffic[i] = Traffic{
+					Pageviews: pageviews + dnt_pageviews,
+					Visitors:  estimate_visitors(pageviews, dnt_pageviews, visitors),
+				}
+				monthly_pageviews += pageviews
+				monthly_dnt_pageviews += dnt_pageviews
 			}
 
-			dnt_rate_estimate := 1.0
-			if visits > 0 {
-				dnt_rate_estimate = float64(dnt_visits) / float64(dnt_visits+visits)
+			monthly_visitors, _ := rdb.PFCount(monthly_hll_keys...).Result()
+			domain.Traffic = Traffic{
+				Visitors:  estimate_visitors(monthly_pageviews, monthly_dnt_pageviews, monthly_visitors),
+				Pageviews: monthly_pageviews + monthly_dnt_pageviews,
 			}
-			dnt_visitors_estimate := float64(visitors_estimate) * dnt_rate_estimate
-
-			domains = append(domains, Domain{
-				Host:             host,
-				Visits:           dnt_visits + visits,
-				VisitorsEstimate: visitors_estimate + int64(math.Round(dnt_visitors_estimate)),
-				Key:              key,
-			})
+			domains = append(domains, domain)
 		}
 
 	}

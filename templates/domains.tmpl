@@ -1,7 +1,12 @@
 {{ range . }}
     <div class="domain">
         <h3><a href="/domains/{{ .Host }}">{{ .Host }}</a></h3>
-        <p>{{ .VisitorsEstimate }} people viewed {{ .Visits }} pages</p>
+        <p>{{ .Traffic.Visitors }} people viewed {{ .Traffic.Pageviews }} pages</p>
+        <p>
+            {{ range .DailyTraffic }}
+                {{ .Visitors }}/{{ .Pageviews }};
+            {{ end }}
+        </p>
     </div>
 {{ else }}
     <p>no domains.</p>
