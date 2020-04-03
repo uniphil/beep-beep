@@ -93,7 +93,7 @@ fn visitor(req: &Request<Body>) -> Option<(Key, Option<u64>, String, String)> {
     };
     let headers = req.headers();
     let dnt = headers.get("dnt").map_or(false, |v| v == "1");
-    let identifier = if false && dnt { None } else {
+    let identifier = if dnt { None } else {
         let ip = headers.get("x-forwarded-for")
             .and_then(|v| v.to_str().ok())
             .unwrap_or_else(|| {
@@ -140,9 +140,9 @@ async fn count<'a>(key: Key, identifier: Option<u64>, host: &'a str, path: &'a s
             .pfadd(hll_key, id).ignore()
             .incr(abs_key, 1u8).ignore()
             .zadd(format!("counts:hlls:all:{}", host), hll_key, date_ord).ignore()
-            .zadd(format!("counts:hlls:path:{}/{}", host, path), hll_key, date_ord).ignore()
+            .zadd(format!("counts:hlls:path:{}:{}", host, path), hll_key, date_ord).ignore()
             .zadd(format!("counts:abss:all:{}", host), abs_key, date_ord).ignore()
-            .zadd(format!("counts:abss:path:{}/{}", host, path), abs_key, date_ord).ignore()
+            .zadd(format!("counts:abss:path:{}:{}", host, path), abs_key, date_ord).ignore()
             .query_async(&mut con).await?;
     } else {
         let dnt_key = &format!("counts:abs:{}:{}", host, date_ord);
