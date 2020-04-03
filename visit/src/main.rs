@@ -125,30 +125,30 @@ async fn count<'a>(key: Key, identifier: Option<u64>, host: &'a str, path: &'a s
         .query_row("SELECT * FROM domains WHERE host = ? AND key = ?",
             params![host, key], |_| Ok(()))?;
 
-    let date_ord = {
-        let today = Local::today();
-        today.year() as f32 + today.ordinal() as f32 / 1000.
+    let date_bleh = {
+        let today = Local::today();  // going to format as a big integer like 20200321 (YYYYMMDD)
+        today.year() as u32 * 0001_00_00 + today.month() * 01_00 + today.day() * 01
     };
 
     let client = redis::Client::open("redis://127.0.0.1:6379")?;
     let mut con = client.get_async_connection().await?;
 
     if let Some(id) = identifier {
-        let hll_key = &format!("counts:hll:{}:{}:{}", host, date_ord, path);
-        let abs_key = &format!("counts:abs:{}:{}:{}", host, date_ord, path);
+        let hll_key = &format!("counts:hll:{}:{}:{}", host, date_bleh, path);
+        let abs_key = &format!("counts:abs:{}:{}:{}", host, date_bleh, path);
         redis::pipe()
             .pfadd(hll_key, id).ignore()
             .incr(abs_key, 1u8).ignore()
-            .zadd(format!("counts:hlls:all:{}", host), hll_key, date_ord).ignore()
-            .zadd(format!("counts:hlls:path:{}:{}", host, path), hll_key, date_ord).ignore()
-            .zadd(format!("counts:abss:all:{}", host), abs_key, date_ord).ignore()
-            .zadd(format!("counts:abss:path:{}:{}", host, path), abs_key, date_ord).ignore()
+            .zadd(format!("counts:hlls:all:{}", host), hll_key, date_bleh).ignore()
+            .zadd(format!("counts:hlls:path:{}:{}", host, path), hll_key, date_bleh).ignore()
+            .zadd(format!("counts:abss:all:{}", host), abs_key, date_bleh).ignore()
+            .zadd(format!("counts:abss:path:{}:{}", host, path), abs_key, date_bleh).ignore()
             .query_async(&mut con).await?;
     } else {
-        let dnt_key = &format!("counts:abs:{}:{}", host, date_ord);
+        let dnt_key = &format!("counts:abs:{}:{}", host, date_bleh);
         redis::pipe()
             .incr(dnt_key, 1u8).ignore()
-            .zadd(format!("counts:dnt:{}", host), dnt_key, date_ord).ignore()
+            .zadd(format!("counts:dnt:{}", host), dnt_key, date_bleh).ignore()
             .query_async(&mut con).await?;
     }
     Ok(())
