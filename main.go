@@ -284,7 +284,66 @@ type Domain struct {
 	Host         string
 	Key          string
 	Traffic      Traffic
-	DailyTraffic [30]Traffic
+	DailyTraffic []Traffic
+}
+
+func host_traffic_summary(host string, start time.Time, end time.Time) (Traffic, []Traffic, error) {
+	start = start.AddDate(0, 0, 1)
+	end = end.AddDate(0, 0, 1)
+	var (
+		daily_traffic         []Traffic
+		monthly_pageviews     int64
+		monthly_dnt_pageviews int64
+		monthly_hll_keys      []string
+	)
+	for t := start; t.Before(end); t = t.AddDate(0, 0, 1) {
+		date_key := t.Format(DATE_FORMAT)
+
+		var visitors int64
+		hll_keys, err := rdb.Keys(fmt.Sprintf("counts:hll:%s:%s:*", host, date_key)).Result()
+		if err == nil && len(hll_keys) > 0 {
+			visitors += rdb.PFCount(hll_keys...).Val()
+		}
+
+		var pageviews int64
+		abs_keys, err := rdb.Keys(fmt.Sprintf("counts:abs:%s:%s:*", host, date_key)).Result()
+		if err == nil && len(abs_keys) > 0 {
+			counters := rdb.MGet(abs_keys...).Val()
+			if err == nil {
+				for _, counter := range counters {
+					n, err := strconv.ParseInt(counter.(string), 10, 64)
+					if err == nil {
+						pageviews += n
+					}
+				}
+			}
+		}
+
+		var dnt_pageviews int64
+		v, err := rdb.Get(fmt.Sprintf("counts:abs:%s:%s", host, date_key)).Result()
+		if err == nil {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err == nil {
+				dnt_pageviews += n
+			}
+		}
+
+		monthly_hll_keys = append(monthly_hll_keys, hll_keys...)
+		monthly_pageviews += pageviews
+		monthly_dnt_pageviews += dnt_pageviews
+		daily_traffic = append(daily_traffic, Traffic{
+			Pageviews: pageviews + dnt_pageviews,
+			Visitors:  estimate_visitors(pageviews, dnt_pageviews, visitors),
+		})
+	}
+
+	monthly_visitors, _ := rdb.PFCount(monthly_hll_keys...).Result()
+
+	traffic := Traffic{
+		Visitors:  estimate_visitors(monthly_pageviews, monthly_dnt_pageviews, monthly_visitors),
+		Pageviews: monthly_pageviews + monthly_dnt_pageviews,
+	}
+	return traffic, daily_traffic, nil
 }
 
 func home(w http.ResponseWriter, r *http.Request) {
@@ -311,67 +370,16 @@ func home(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error()+" (while getting domains)", http.StatusInternalServerError)
 				return
 			}
-			domain := Domain{
-				Host: host,
-				Key:  key,
-			}
-
-			var (
-				monthly_pageviews     int64
-				monthly_dnt_pageviews int64
-				monthly_hll_keys      []string
-			)
 			now := time.Now()
-
-			for i := 0; i < 30; i++ {
-				date_key := now.Add(time.Hour * 24 * time.Duration(29-i)).Format(DATE_FORMAT)
-
-				var visitors int64
-				hll_keys, err := rdb.Keys(fmt.Sprintf("counts:hll:%s:%s:*", host, date_key)).Result()
-				if err == nil && len(hll_keys) > 0 {
-					visitors += rdb.PFCount(hll_keys...).Val()
-				}
-
-				var pageviews int64
-				abs_keys, err := rdb.Keys(fmt.Sprintf("counts:abs:%s:%s:*", host, date_key)).Result()
-				if err == nil && len(abs_keys) > 0 {
-					counters := rdb.MGet(abs_keys...).Val()
-					if err == nil {
-						for _, counter := range counters {
-							n, err := strconv.ParseInt(counter.(string), 10, 64)
-							if err == nil {
-								pageviews += n
-							}
-						}
-					}
-				}
-
-				var dnt_pageviews int64
-				v, err := rdb.Get(fmt.Sprintf("counts:abs:%s:%s", host, date_key)).Result()
-				if err == nil {
-					n, err := strconv.ParseInt(v, 10, 64)
-					if err == nil {
-						dnt_pageviews += n
-					}
-				}
-
-				monthly_hll_keys = append(monthly_hll_keys, hll_keys...)
-				domain.DailyTraffic[i] = Traffic{
-					Pageviews: pageviews + dnt_pageviews,
-					Visitors:  estimate_visitors(pageviews, dnt_pageviews, visitors),
-				}
-				monthly_pageviews += pageviews
-				monthly_dnt_pageviews += dnt_pageviews
-			}
-
-			monthly_visitors, _ := rdb.PFCount(monthly_hll_keys...).Result()
-			domain.Traffic = Traffic{
-				Visitors:  estimate_visitors(monthly_pageviews, monthly_dnt_pageviews, monthly_visitors),
-				Pageviews: monthly_pageviews + monthly_dnt_pageviews,
-			}
-			domains = append(domains, domain)
+			start := now.AddDate(0, 0, -30)
+			traffic, daily_traffic, _ := host_traffic_summary(host, start, now)
+			domains = append(domains, Domain{
+				Host:         host,
+				Key:          key,
+				Traffic:      traffic,
+				DailyTraffic: daily_traffic,
+			})
 		}
-
 	}
 	t.ExecuteTemplate(w, "home.tmpl", map[string]interface{}{
 		csrf.TemplateTag: csrf.TemplateField(r),
