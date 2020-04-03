@@ -1,5 +1,19 @@
 {{ template "head.tmpl" .User }}
 
+<p>30-day traffic summary: {{ .Traffic.Pageviews }} page views by {{ .Traffic.Visitors }} people.</p>
+<p>
+    {{ range .DailyTraffic }}
+        {{ .Visitors }}/{{ .Pageviews }};
+    {{ end }}
+</p>
+
+<p>30-day page summary:</p>
+<ul>
+    {{ range $path, $traffic := .PathsTraffic }}
+        <li><strong>{{ $path }}</strong>: {{ $traffic.Visitors }}/{{ $traffic.Pageviews }}</li>
+    {{ end }}
+</ul>
+
 Add the following snippet before the closing <code>&lt;/body&gt;</code> tag to count traffic at {{ .Host }}.
 
 <pre><code>&lt;img
