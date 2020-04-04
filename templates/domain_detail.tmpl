@@ -10,9 +10,9 @@
 <p>30-day page summary:</p>
 <ul>
     {{ $host := .Host }}
-    {{ range $path, $traffic := .PathsTraffic }}
-        <li><strong><a href="/domains/{{ $host }}{{ $path }}">{{ $path }}</a></strong>:
-        {{ $traffic.Visitors }}/{{ $traffic.Pageviews }}</li>
+    {{ range .PathsTraffic }}
+        <li><strong><a href="/domains/{{ $host }}{{ .Path }}">{{ .Path }}</a></strong>:
+        {{ .Traffic.Visitors }}/{{ .Traffic.Pageviews }}</li>
     {{ end }}
 </ul>
 

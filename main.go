@@ -17,6 +17,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -308,7 +309,12 @@ type Domain struct {
 	DailyTraffic []Traffic
 }
 
-func paths_summary(host string, start time.Time, end time.Time) (map[string]Traffic, error) {
+type PathTraffic struct {
+	Path string
+	Traffic Traffic
+}
+
+func paths_summary(host string, start time.Time, end time.Time) ([]PathTraffic, error) {
 	start = start.AddDate(0, 0, 1)
 	end = end.AddDate(0, 0, 1)
 	summary := make(map[string]Traffic)
@@ -350,7 +356,19 @@ func paths_summary(host string, start time.Time, end time.Time) (map[string]Traf
 		}
 	}
 
-	return summary, nil
+	var sorted []PathTraffic
+	for k, v := range summary {
+		sorted = append(sorted, PathTraffic{ Path: k, Traffic: v })
+	}
+	sort.Slice(sorted, func(a, b int) bool {
+		at, bt := sorted[a].Traffic, sorted[b].Traffic
+		if at.Visitors == bt.Visitors {
+			return bt.Pageviews < at.Pageviews
+		}
+		return bt.Visitors < at.Visitors
+	})
+
+	return sorted, nil
 }
 
 func host_traffic_summary(host string, start time.Time, end time.Time) (Traffic, []Traffic, error) {
