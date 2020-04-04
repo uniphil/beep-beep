@@ -259,6 +259,19 @@ var domain_detail = require_user(func(w http.ResponseWriter, r *http.Request, u 
 	}
 })
 
+var path_detail = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
+	host := mux.Vars(r)["host"]
+	path := "/" + mux.Vars(r)["path"]
+	err := t.ExecuteTemplate(w, "path_detail.tmpl", map[string]interface{}{
+		"User": u,
+		"Host": host,
+		"Path": path,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+})
+
 func require_user(h func(w http.ResponseWriter, r *http.Request, u User)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, _ := r.Context().Value("user").(*User)
@@ -580,6 +593,7 @@ func main() {
 	r.HandleFunc("/account", account_detail)
 	r.HandleFunc("/contact", static_template)
 	r.HandleFunc("/domains/{host}", domain_detail)
+	r.HandleFunc("/domains/{host}/{path:.*}", path_detail)
 	r.HandleFunc("/login", login)
 	r.HandleFunc("/logout", logout)
 	r.HandleFunc("/new-domain", new_domain)
