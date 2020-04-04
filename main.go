@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
 	"fmt"
 	"github.com/go-redis/redis"
@@ -310,7 +309,7 @@ type Domain struct {
 }
 
 type PathTraffic struct {
-	Path string
+	Path    string
 	Traffic Traffic
 }
 
@@ -358,7 +357,7 @@ func paths_summary(host string, start time.Time, end time.Time) ([]PathTraffic, 
 
 	var sorted []PathTraffic
 	for k, v := range summary {
-		sorted = append(sorted, PathTraffic{ Path: k, Traffic: v })
+		sorted = append(sorted, PathTraffic{Path: k, Traffic: v})
 	}
 	sort.Slice(sorted, func(a, b int) bool {
 		at, bt := sorted[a].Traffic, sorted[b].Traffic
@@ -579,14 +578,21 @@ func SecurityHeaders(strict bool) func(h http.Handler) http.Handler {
 }
 
 func main() {
+	var err error
 	DEVMODE := os.Getenv("DEV") != ""
-	_, err := rand.Read(key[:])
-	if err != nil {
-		panic(err)
-	}
-	_, err = rand.Read(csrf_key[:])
-	if err != nil {
-		panic(err)
+
+	if DEVMODE {
+		for i, c := range []byte("super secret") {
+			key[i] = c
+			csrf_key[i] = c
+		}
+	} else {
+		ENV_KEY := os.Getenv("KEY")
+		ENV_CSRF_KEY := os.Getenv("CSRF_KEY")
+		for i := 0; i < len(key); i++ {
+			key[i] = ENV_KEY[i]
+			csrf_key[i] = ENV_CSRF_KEY[i]
+		}
 	}
 	store = sessions.NewCookieStore(key[:])
 	store.Options.HttpOnly = true
