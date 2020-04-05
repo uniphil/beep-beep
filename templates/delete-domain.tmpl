@@ -1,0 +1,8 @@
+{{ template "head.tmpl" .User }}
+<p>Are you sure you want to delete domain {{ .Host }}? All traffic data will be deleted.</p>
+<form action="/domains/delete?domain={{ .Host }}" method="post">
+  {{ .csrfField }}
+  <p><label>Enter domain to confirm: <input type="text" name="host-confirm" required /></label></p>
+  <p><button type="submit">Delete domain</button></p>
+</form>
+{{ template "foot.tmpl" }}

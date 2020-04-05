@@ -163,6 +163,7 @@ func logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func new_domain(w http.ResponseWriter, r *http.Request) {
+	// TODO: require_user
 	user, _ := r.Context().Value("user").(*User)
 	if user == nil {
 		http.Error(w, "(not logged in)", http.StatusForbidden)
@@ -198,6 +199,65 @@ func new_domain(w http.ResponseWriter, r *http.Request) {
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
+
+var delete_domain = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
+	host := normalizeHost(r.URL.Query().Get("domain"))
+	if host == "" {
+		// TODO: flash message
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	stmt, err := db.Prepare("SELECT 1 FROM domains WHERE host = ? AND user_id = ?")
+	if err != nil {
+		http.Error(w, err.Error()+" (while setting up db query)", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	var _n int64
+	err = stmt.QueryRow(host, u.Id).Scan(&_n)
+	if err == sql.ErrNoRows {
+		// TODO: flash message
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	} else if err != nil {
+		http.Error(w, "Error while trying to delete domain— "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		t.ExecuteTemplate(w, "delete-domain.tmpl", map[string]interface{}{
+			csrf.TemplateTag: csrf.TemplateField(r),
+			"User":           u,
+			"Host":           host,
+		})
+		return
+	}
+
+	confirm_host := normalizeHost(r.FormValue("host-confirm"))
+	if confirm_host != host {
+		http.Error(w, fmt.Sprintf("Domain confirmation \"%s\" didn't match domain: %s",
+			confirm_host, host), http.StatusBadRequest)
+		return
+	}
+
+	stmt, err = db.Prepare("DELETE FROM domains WHERE host = ? AND user_id = ?")
+	if err != nil {
+		http.Error(w, err.Error()+" (while setting up db query)", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(host, u.Id)
+	if err != nil {
+		http.Error(w, "Error while trying to delete domain— "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// TODO flash
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+})
 
 var account_detail = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
 	stmt, err := db.Prepare("SELECT created, email_verified FROM users WHERE id = ?")
@@ -616,6 +676,7 @@ func main() {
 	r.HandleFunc("/about", static_template)
 	r.HandleFunc("/account", account_detail)
 	r.HandleFunc("/contact", static_template)
+	r.HandleFunc("/domains/delete", delete_domain)
 	r.HandleFunc("/domains/{host}", domain_detail)
 	r.HandleFunc("/domains/{host}/{path:.*}", path_detail)
 	r.HandleFunc("/login", login)
