@@ -364,6 +364,7 @@ type Traffic struct {
 type GraphData struct {
 	H, W int64
 	Data Data
+	Name string
 }
 
 type Domain struct {
@@ -542,6 +543,7 @@ func home(w http.ResponseWriter, r *http.Request) {
 					H:    32,
 					W:    128,
 					Data: data,
+					Name: host,
 				},
 			})
 		}
@@ -577,7 +579,7 @@ func (data Data) Scale(w, h int64, yzero bool) Data {
 	xmin := math.Inf(1)
 	xmax := math.Inf(-1)
 	ymin := math.Inf(1)
-	ymax := math.Inf(-1)
+	ymax := float64(1)
 	for _, d := range data {
 		if d.X < xmin {
 			xmin = d.X
