@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS "domains" (
 	"user_id"	INTEGER NOT NULL,
 	"key"	TEXT NOT NULL DEFAULT (lower(hex(randomblob(8)))),
 	"created"	DATETIME NOT NULL DEFAULT (strftime('%s','now')),
-	PRIMARY KEY("host","user_id")
+	PRIMARY KEY("host","user_id"),
+	FOREIGN KEY("user_id") REFERENCES "users"("id") ON UPDATE CASCADE ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS "users" (
 	"id"	INTEGER PRIMARY KEY AUTOINCREMENT,

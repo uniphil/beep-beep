@@ -1,0 +1,8 @@
+{{ template "head.tmpl" .User }}
+<p>Are you sure you want to your account? All traffic data associated from your account {{ if .Domains }} from {{ range .Domains }}{{ . }}, {{ end }} {{ end }}will be deleted.</p>
+<form action="/account/delete" method="post">
+  {{ .csrfField }}
+  <p><label>Enter your password to confirm: <input type="password" name="password-confirm" required /></label></p>
+  <p><button type="submit">Delete account</button></p>
+</form>
+{{ template "foot.tmpl" }}

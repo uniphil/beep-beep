@@ -259,6 +259,56 @@ var delete_domain = require_user(func(w http.ResponseWriter, r *http.Request, u 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 })
 
+var delete_account = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
+	if r.Method != http.MethodPost {
+		err := t.ExecuteTemplate(w, "delete_account.tmpl", map[string]interface{}{
+			csrf.TemplateTag: csrf.TemplateField(r),
+			"User":           u,
+			"Domains": nil,
+		})
+		if err != nil {
+			http.Error(w, "Error rendering delete page: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		return
+	}
+
+	pw_plain := r.FormValue("password-confirm")
+	stmt, err := db.Prepare("SELECT password FROM users WHERE id = ?")
+	if err != nil {
+		http.Error(w, err.Error()+" (while preparing sql)", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+	var pw_hash []byte
+	err = stmt.QueryRow(u.Id).Scan(&pw_hash)
+	if err != nil {
+		http.Error(w, err.Error()+" (while setting up password check)", http.StatusInternalServerError)
+		return
+	}
+	matches := bcrypt.CompareHashAndPassword(pw_hash, []byte(pw_plain))
+	if matches != nil {
+		http.Error(w, "Incorrect password", http.StatusForbidden)
+		return
+	}
+
+	stmt, err = db.Prepare("DELETE FROM users WHERE id = ?")
+	if err != nil {
+		http.Error(w, err.Error()+" (while setting up db query)", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(u.Id)
+	if err != nil {
+		http.Error(w, "Error while trying to delete account: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// TODO flash
+	http.Redirect(w, r, "/logout", http.StatusSeeOther)
+})
+
 var account_detail = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
 	stmt, err := db.Prepare("SELECT created, email_verified FROM users WHERE id = ?")
 	if err != nil {
@@ -728,7 +778,7 @@ func main() {
 		store.Options.Secure = true
 	}
 	t = template.Must(template.ParseGlob("templates/*.tmpl"))
-	db, err = sql.Open("sqlite3", "./accounts.db")
+	db, err = sql.Open("sqlite3", "./accounts.db?_foreign_keys=on")
 	if err != nil {
 		panic(err)
 	}
@@ -743,6 +793,7 @@ func main() {
 	r.HandleFunc("/", home)
 	r.HandleFunc("/about", static_template)
 	r.HandleFunc("/account", account_detail)
+	r.HandleFunc("/account/delete", delete_account)
 	r.HandleFunc("/contact", static_template)
 	r.HandleFunc("/domains/delete", delete_domain)
 	r.HandleFunc("/domains/{host}", domain_detail)
