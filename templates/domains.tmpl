@@ -1,14 +1,10 @@
 {{ range . }}
-    <div class="domain">
-        <h3><a href="/domains/{{ .Host }}">{{ .Host }}</a></h3>
-        <p>{{ .Traffic.Visitors }} people viewed {{ .Traffic.Pageviews }} pages</p>
-        <p>
-            {{ range .DailyTraffic }}
-                {{ .Visitors }}/{{ .Pageviews }};
-            {{ end }}
-        </p>
-    </div>
+  <div class="domain">
+    <h3><a href="/domains/{{ .Host }}">{{ .Host }}</a></h3>
+    {{ template "chart_time_simple.tmpl" .GraphData }}
+    <p>{{ .Traffic.Visitors }} people viewed {{ .Traffic.Pageviews }} pages</p>
+  </div>
 {{ else }}
-    <p>no domains.</p>
+  <p>no domains.</p>
 {{ end }}
 <p><a href="/new-domain">add domain</a></p>

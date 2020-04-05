@@ -361,11 +361,17 @@ type Traffic struct {
 	Pageviews int64
 }
 
+type GraphData struct {
+	H, W int64
+	Data Data
+}
+
 type Domain struct {
 	Host         string
 	Key          string
 	Traffic      Traffic
 	DailyTraffic []Traffic
+	GraphData    GraphData
 }
 
 type PathTraffic struct {
@@ -516,19 +522,39 @@ func home(w http.ResponseWriter, r *http.Request) {
 			now := time.Now()
 			start := now.AddDate(0, 0, -30)
 			traffic, daily_traffic, _ := host_traffic_summary(host, start, now)
+
+			var data Data
+			for i, t := range daily_traffic {
+				x := float64(i)
+				y := float64(t.Pageviews)
+				data = append(data, struct{ X, Y float64 }{
+					X: x,
+					Y: y,
+				})
+			}
+
 			domains = append(domains, Domain{
 				Host:         host,
 				Key:          key,
 				Traffic:      traffic,
 				DailyTraffic: daily_traffic,
+				GraphData: GraphData{
+					H:    32,
+					W:    128,
+					Data: data,
+				},
 			})
 		}
 	}
-	t.ExecuteTemplate(w, "home.tmpl", map[string]interface{}{
+	err := t.ExecuteTemplate(w, "home.tmpl", map[string]interface{}{
 		csrf.TemplateTag: csrf.TemplateField(r),
 		"User":           user,
 		"Domains":        domains,
 	})
+	if err != nil {
+		fmt.Println("err", err.Error())
+		http.Error(w, err.Error(), http.StatusNotFound)
+	}
 }
 
 func static_template(w http.ResponseWriter, r *http.Request) {
@@ -540,6 +566,46 @@ func static_template(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 	}
+}
+
+type Data []struct {
+	X, Y float64
+}
+
+func (data Data) Scale(w, h int64, yzero bool) Data {
+	PADDING := int64(2)
+	xmin := math.Inf(1)
+	xmax := math.Inf(-1)
+	ymin := math.Inf(1)
+	ymax := math.Inf(-1)
+	for _, d := range data {
+		if d.X < xmin {
+			xmin = d.X
+		}
+		if d.X > xmax {
+			xmax = d.X
+		}
+		if d.Y < ymin {
+			ymin = d.Y
+		}
+		if d.Y > ymax {
+			ymax = d.Y
+		}
+	}
+	var out Data
+	for _, d := range data {
+		var y float64
+		if yzero {
+			y = d.Y * float64(h-PADDING*2) / ymax
+		} else {
+			y = (d.Y - ymin) * float64(h-PADDING*2) / (ymax - ymin)
+		}
+		out = append(out, struct{ X, Y float64 }{
+			X: (d.X-xmin)*float64(w-PADDING*2)/(xmax-xmin) + float64(PADDING),
+			Y: y + float64(PADDING),
+		})
+	}
+	return out
 }
 
 func GetSession(next http.Handler) http.Handler {
