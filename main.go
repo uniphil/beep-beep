@@ -309,6 +309,79 @@ var delete_account = require_user(func(w http.ResponseWriter, r *http.Request, u
 	http.Redirect(w, r, "/logout", http.StatusSeeOther)
 })
 
+var change_password = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
+	if r.Method != http.MethodPost {
+		err := t.ExecuteTemplate(w, "change_password.tmpl", map[string]interface{}{
+			csrf.TemplateTag: csrf.TemplateField(r),
+			"User":           u,
+		})
+		if err != nil {
+			http.Error(w, "Error rendering change password page: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		return
+	}
+
+	pw_plain_old := r.FormValue("old-password")
+	pw_plain := r.FormValue("new-password")
+	pw_plain_confirm := r.FormValue("new-password-confirm")
+
+	if pw_plain_confirm != pw_plain {
+		http.Error(w, "passwords did not match", http.StatusForbidden)
+		return
+	}
+
+	stmt, err := db.Prepare("SELECT password FROM users WHERE id = ?")
+	if err != nil {
+		http.Error(w, err.Error()+" (while preparing sql)", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+	var pw_hash []byte
+	err = stmt.QueryRow(u.Id).Scan(&pw_hash)
+	if err != nil {
+		http.Error(w, err.Error()+" (while setting up password check)", http.StatusInternalServerError)
+		return
+	}
+	matches := bcrypt.CompareHashAndPassword(pw_hash, []byte(pw_plain_old))
+	if matches != nil {
+		http.Error(w, "Incorrect password", http.StatusForbidden)
+		return
+	}
+
+	if pw_plain == pw_plain_old {
+		http.Error(w, "new password is the same as the old one", http.StatusForbidden)
+		return
+	}
+
+	if len(pw_plain) < 6 {
+		http.Error(w, "new password is too short", http.StatusForbidden)
+		return
+	}
+
+	new_pw_hash, err := bcrypt.GenerateFromPassword([]byte(pw_plain), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, err.Error()+" (while trying to encrypt password)", http.StatusInternalServerError)
+		return
+	}
+
+	stmt, err = db.Prepare("UPDATE users SET password = ? WHERE id = ?")
+	if err != nil {
+		http.Error(w, err.Error()+" (while setting up db query)", http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(new_pw_hash, u.Id)
+	if err != nil {
+		http.Error(w, "Error while trying to update password— "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// TODO flash
+	http.Redirect(w, r, "/account", http.StatusSeeOther)
+})
+
 var account_detail = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
 	stmt, err := db.Prepare("SELECT created, email_verified FROM users WHERE id = ?")
 	if err != nil {
@@ -793,6 +866,7 @@ func main() {
 	r.HandleFunc("/", home)
 	r.HandleFunc("/about", static_template)
 	r.HandleFunc("/account", account_detail)
+	r.HandleFunc("/account/change-password", change_password)
 	r.HandleFunc("/account/delete", delete_account)
 	r.HandleFunc("/contact", static_template)
 	r.HandleFunc("/domains/delete", delete_domain)
