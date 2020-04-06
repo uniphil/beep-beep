@@ -261,10 +261,32 @@ var delete_domain = require_user(func(w http.ResponseWriter, r *http.Request, u 
 
 var delete_account = require_user(func(w http.ResponseWriter, r *http.Request, u User) {
 	if r.Method != http.MethodPost {
-		err := t.ExecuteTemplate(w, "delete_account.tmpl", map[string]interface{}{
+		stmt, err := db.Prepare("SELECT host FROM domains WHERE user_id = ?")
+		if err != nil {
+			http.Error(w, err.Error()+" (while preparing sql)", http.StatusInternalServerError)
+			return
+		}
+		defer stmt.Close()
+		var domains []string
+		rows, err := stmt.Query(u.Id)
+		if err != nil {
+			http.Error(w, "Error while looking up domains, "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		for rows.Next() {
+			var host string
+			err = rows.Scan(&host)
+			if err != nil {
+				http.Error(w, err.Error()+" (while getting domains)", http.StatusInternalServerError)
+				return
+			}
+			domains = append(domains, host)
+		}
+
+		err = t.ExecuteTemplate(w, "delete_account.tmpl", map[string]interface{}{
 			csrf.TemplateTag: csrf.TemplateField(r),
 			"User":           u,
-			"Domains": nil,
+			"Domains":        domains,
 		})
 		if err != nil {
 			http.Error(w, "Error rendering delete page: "+err.Error(), http.StatusInternalServerError)
