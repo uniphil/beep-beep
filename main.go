@@ -1,6 +1,7 @@
 package main
 
 import (
+	"beep-beep/traffic_data"
 	"context"
 	"database/sql"
 	"fmt"
@@ -13,7 +14,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
 	"html/template"
-	"math"
 	"net/http"
 	"os"
 	"sort"
@@ -488,47 +488,18 @@ func require_user(h func(w http.ResponseWriter, r *http.Request, u User)) http.H
 	}
 }
 
-func estimate_visitors(pageviews int64, dnt_pageviews int64, visitors int64) int64 {
-	var dnt_visitors int64
-	if dnt_pageviews > 0 {
-		if pageviews > 0 {
-			dnt_rate := float64(dnt_pageviews) / float64(dnt_pageviews+pageviews)
-			dnt_visitors = int64(math.Round(float64(visitors) * dnt_rate))
-		} else {
-			dnt_visitors = 1
-		}
-	}
-	return visitors + dnt_visitors
-}
-
-type Traffic struct {
-	Visitors  int64
-	Pageviews int64
-}
-
-type GraphData struct {
-	H, W int64
-	Data Data
-	Name string
-}
-
 type Domain struct {
 	Host         string
 	Key          string
-	Traffic      Traffic
-	DailyTraffic []Traffic
-	GraphData    GraphData
+	Traffic      traffic_data.Traffic
+	DailyTraffic []traffic_data.Traffic
+	GraphData    traffic_data.GraphData
 }
 
-type PathTraffic struct {
-	Path    string
-	Traffic Traffic
-}
-
-func paths_summary(host string, host_key string, start time.Time, end time.Time) ([]PathTraffic, error) {
+func paths_summary(host string, host_key string, start time.Time, end time.Time) ([]traffic_data.PathTraffic, error) {
 	start = start.AddDate(0, 0, 1)
 	end = end.AddDate(0, 0, 1)
-	summary := make(map[string]Traffic)
+	summary := make(map[string]traffic_data.Traffic)
 	path_hll_keys := make(map[string][]string)
 	path_abs_keys := make(map[string][]string)
 	for t := start; t.Before(end); t = t.AddDate(0, 0, 1) {
@@ -549,7 +520,7 @@ func paths_summary(host string, host_key string, start time.Time, end time.Time)
 
 	for path, keys := range path_hll_keys {
 		count, _ := rdb.PFCount(keys...).Result()
-		summary[path] = Traffic{
+		summary[path] = traffic_data.Traffic{
 			Visitors: count,
 		}
 	}
@@ -561,15 +532,15 @@ func paths_summary(host string, host_key string, start time.Time, end time.Time)
 			n, _ := strconv.ParseInt(count.(string), 10, 64)
 			pageviews += n
 		}
-		summary[path] = Traffic{
+		summary[path] = traffic_data.Traffic{
 			Visitors:  summary[path].Visitors,
 			Pageviews: pageviews,
 		}
 	}
 
-	var sorted []PathTraffic
+	var sorted []traffic_data.PathTraffic
 	for k, v := range summary {
-		sorted = append(sorted, PathTraffic{Path: k, Traffic: v})
+		sorted = append(sorted, traffic_data.PathTraffic{Path: k, Traffic: v})
 	}
 	sort.Slice(sorted, func(a, b int) bool {
 		at, bt := sorted[a].Traffic, sorted[b].Traffic
@@ -582,11 +553,11 @@ func paths_summary(host string, host_key string, start time.Time, end time.Time)
 	return sorted, nil
 }
 
-func host_traffic_summary(host string, host_key string, start time.Time, end time.Time) (Traffic, []Traffic, error) {
+func host_traffic_summary(host string, host_key string, start time.Time, end time.Time) (traffic_data.Traffic, []traffic_data.Traffic, error) {
 	start = start.AddDate(0, 0, 1)
 	end = end.AddDate(0, 0, 1)
 	var (
-		daily_traffic         []Traffic
+		daily_traffic         []traffic_data.Traffic
 		monthly_pageviews     int64
 		monthly_dnt_pageviews int64
 		monthly_hll_keys      []string
@@ -626,16 +597,16 @@ func host_traffic_summary(host string, host_key string, start time.Time, end tim
 		monthly_hll_keys = append(monthly_hll_keys, hll_keys...)
 		monthly_pageviews += pageviews
 		monthly_dnt_pageviews += dnt_pageviews
-		daily_traffic = append(daily_traffic, Traffic{
+		daily_traffic = append(daily_traffic, traffic_data.Traffic{
 			Pageviews: pageviews + dnt_pageviews,
-			Visitors:  estimate_visitors(pageviews, dnt_pageviews, visitors),
+			Visitors:  traffic_data.Estimate_visitors(pageviews, dnt_pageviews, visitors),
 		})
 	}
 
 	monthly_visitors, _ := rdb.PFCount(monthly_hll_keys...).Result()
 
-	traffic := Traffic{
-		Visitors:  estimate_visitors(monthly_pageviews, monthly_dnt_pageviews, monthly_visitors),
+	traffic := traffic_data.Traffic{
+		Visitors:  traffic_data.Estimate_visitors(monthly_pageviews, monthly_dnt_pageviews, monthly_visitors),
 		Pageviews: monthly_pageviews + monthly_dnt_pageviews,
 	}
 	return traffic, daily_traffic, nil
@@ -669,7 +640,7 @@ func home(w http.ResponseWriter, r *http.Request) {
 			start := now.AddDate(0, 0, -30)
 			traffic, daily_traffic, _ := host_traffic_summary(host, key, start, now)
 
-			var data Data
+			var data traffic_data.Data
 			for i, t := range daily_traffic {
 				x := float64(i)
 				y := float64(t.Pageviews)
@@ -684,7 +655,7 @@ func home(w http.ResponseWriter, r *http.Request) {
 				Key:          key,
 				Traffic:      traffic,
 				DailyTraffic: daily_traffic,
-				GraphData: GraphData{
+				GraphData: traffic_data.GraphData{
 					H:    32,
 					W:    128,
 					Data: data,
@@ -713,46 +684,6 @@ func static_template(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 	}
-}
-
-type Data []struct {
-	X, Y float64
-}
-
-func (data Data) Scale(w, h int64, yzero bool) Data {
-	PADDING := int64(2)
-	xmin := math.Inf(1)
-	xmax := math.Inf(-1)
-	ymin := math.Inf(1)
-	ymax := float64(1)
-	for _, d := range data {
-		if d.X < xmin {
-			xmin = d.X
-		}
-		if d.X > xmax {
-			xmax = d.X
-		}
-		if d.Y < ymin {
-			ymin = d.Y
-		}
-		if d.Y > ymax {
-			ymax = d.Y
-		}
-	}
-	var out Data
-	for _, d := range data {
-		var y float64
-		if yzero {
-			y = d.Y * float64(h-PADDING*2) / ymax
-		} else {
-			y = (d.Y - ymin) * float64(h-PADDING*2) / (ymax - ymin)
-		}
-		out = append(out, struct{ X, Y float64 }{
-			X: (d.X-xmin)*float64(w-PADDING*2)/(xmax-xmin) + float64(PADDING),
-			Y: y + float64(PADDING),
-		})
-	}
-	return out
 }
 
 func GetSession(next http.Handler) http.Handler {
