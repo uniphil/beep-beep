@@ -30,6 +30,11 @@ static BAD_PIXEL: &[u8] = &[
 
 #[derive(Debug, Clone, Copy)]
 struct Key([u8; 16]);
+impl Key {
+    fn to_string(&self) -> String {
+        String::from_utf8(self.0.to_vec()).unwrap_or_else(|_| panic!("invalid key"))
+    }
+}
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Key({})", String::from_utf8(self.0.to_vec()).expect("[invalid key bytes]"))
@@ -135,12 +140,12 @@ async fn count<'a>(key: Key, identifier: Option<u64>, host: &'a str, path: &'a s
 
     if let Some(id) = identifier {
         redis::pipe()
-            .pfadd(&format!("counts:hll:{}:{}:{}", host, date_bleh, path), id).ignore()
-            .incr(&format!("counts:abs:{}:{}:{}", host, date_bleh, path), 1u8).ignore()
+            .pfadd(&format!("counts:hll:{}:{}:{}:{}", host, key.to_string(), date_bleh, path), id).ignore()
+            .incr(&format!("counts:abs:{}:{}:{}:{}", host, key.to_string(), date_bleh, path), 1u8).ignore()
             .query_async(&mut con).await?;
     } else {
         redis::pipe()
-            .incr(&format!("counts:abs:{}:{}", host, date_bleh), 1u8).ignore()
+            .incr(&format!("counts:abs:{}:{}:{}", host, key.to_string(), date_bleh), 1u8).ignore()
             .query_async(&mut con).await?;
     }
     Ok(())
