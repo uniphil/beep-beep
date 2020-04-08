@@ -9,7 +9,7 @@
       <polyline
         class="line"
         fill="none"
-        points="{{ range .Data.Scale .W .H true }}{{ .X }},{{ .Y }} {{ end }}"
+        points="{{ range .Data.ToPulse.Points .W .H }}{{ .X }},{{ .Y }} {{ end }}"
         stroke="var(--theme)"
         stroke-linecap="round"
         stroke-linejoin="round"

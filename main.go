@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/go-redis/redis"
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
@@ -16,21 +15,17 @@ import (
 	"html/template"
 	"net/http"
 	"os"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
 
 var cookie_name = "beep-beep"
-var DATE_FORMAT = "20060102"
 
 var (
 	csrf_key [32]byte
 	key      [32]byte // key must be 16, 24 or 32 bytes long (AES-128, AES-192 or AES-256)
 	t        *template.Template
 	db       *sql.DB
-	rdb      *redis.Client
 	store    *sessions.CookieStore
 )
 
@@ -448,8 +443,8 @@ var domain_detail = require_user(func(w http.ResponseWriter, r *http.Request, u 
 
 	now := time.Now()
 	start := now.AddDate(0, 0, -30)
-	traffic, daily_traffic, _ := host_traffic_summary(host, key, start, now)
-	paths_traffic, _ := paths_summary(host, key, start, now)
+	traffic, daily_traffic, _ := traffic_data.HostSummary(host, key, start, now)
+	paths_traffic, _ := traffic_data.PathsSummary(host, key, start, now)
 
 	err = t.ExecuteTemplate(w, "domain_detail.tmpl", map[string]interface{}{
 		"User":         u,
@@ -496,122 +491,6 @@ type Domain struct {
 	GraphData    traffic_data.GraphData
 }
 
-func paths_summary(host string, host_key string, start time.Time, end time.Time) ([]traffic_data.PathTraffic, error) {
-	start = start.AddDate(0, 0, 1)
-	end = end.AddDate(0, 0, 1)
-	summary := make(map[string]traffic_data.Traffic)
-	path_hll_keys := make(map[string][]string)
-	path_abs_keys := make(map[string][]string)
-	for t := start; t.Before(end); t = t.AddDate(0, 0, 1) {
-		date_key := t.Format(DATE_FORMAT)
-
-		hll_keys, _ := rdb.Keys(fmt.Sprintf("counts:hll:%s:%s:%s:*", host, host_key, date_key)).Result()
-		for _, key := range hll_keys {
-			path := strings.SplitN(key, ":", 5)[4]
-			path_hll_keys[path] = append(path_hll_keys[path], key)
-		}
-
-		abs_keys, _ := rdb.Keys(fmt.Sprintf("counts:abs:%s:%s:%s:*", host, host_key, date_key)).Result()
-		for _, key := range abs_keys {
-			path := strings.SplitN(key, ":", 5)[4]
-			path_abs_keys[path] = append(path_abs_keys[path], key)
-		}
-	}
-
-	for path, keys := range path_hll_keys {
-		count, _ := rdb.PFCount(keys...).Result()
-		summary[path] = traffic_data.Traffic{
-			Visitors: count,
-		}
-	}
-
-	for path, keys := range path_abs_keys {
-		counts, _ := rdb.MGet(keys...).Result()
-		var pageviews int64
-		for _, count := range counts {
-			n, _ := strconv.ParseInt(count.(string), 10, 64)
-			pageviews += n
-		}
-		summary[path] = traffic_data.Traffic{
-			Visitors:  summary[path].Visitors,
-			Pageviews: pageviews,
-		}
-	}
-
-	var sorted []traffic_data.PathTraffic
-	for k, v := range summary {
-		sorted = append(sorted, traffic_data.PathTraffic{Path: k, Traffic: v})
-	}
-	sort.Slice(sorted, func(a, b int) bool {
-		at, bt := sorted[a].Traffic, sorted[b].Traffic
-		if at.Visitors == bt.Visitors {
-			return bt.Pageviews < at.Pageviews
-		}
-		return bt.Visitors < at.Visitors
-	})
-
-	return sorted, nil
-}
-
-func host_traffic_summary(host string, host_key string, start time.Time, end time.Time) (traffic_data.Traffic, []traffic_data.Traffic, error) {
-	start = start.AddDate(0, 0, 1)
-	end = end.AddDate(0, 0, 1)
-	var (
-		daily_traffic         []traffic_data.Traffic
-		monthly_pageviews     int64
-		monthly_dnt_pageviews int64
-		monthly_hll_keys      []string
-	)
-	for t := start; t.Before(end); t = t.AddDate(0, 0, 1) {
-		date_key := t.Format(DATE_FORMAT)
-
-		var visitors int64
-		hll_keys, err := rdb.Keys(fmt.Sprintf("counts:hll:%s:%s:%s:*", host, host_key, date_key)).Result()
-		if err == nil && len(hll_keys) > 0 {
-			visitors += rdb.PFCount(hll_keys...).Val()
-		}
-
-		var pageviews int64
-		abs_keys, err := rdb.Keys(fmt.Sprintf("counts:abs:%s:%s:%s:*", host, host_key, date_key)).Result()
-		if err == nil && len(abs_keys) > 0 {
-			counters := rdb.MGet(abs_keys...).Val()
-			if err == nil {
-				for _, counter := range counters {
-					n, err := strconv.ParseInt(counter.(string), 10, 64)
-					if err == nil {
-						pageviews += n
-					}
-				}
-			}
-		}
-
-		var dnt_pageviews int64
-		v, err := rdb.Get(fmt.Sprintf("counts:abs:%s:%s:%s", host, host_key, date_key)).Result()
-		if err == nil {
-			n, err := strconv.ParseInt(v, 10, 64)
-			if err == nil {
-				dnt_pageviews += n
-			}
-		}
-
-		monthly_hll_keys = append(monthly_hll_keys, hll_keys...)
-		monthly_pageviews += pageviews
-		monthly_dnt_pageviews += dnt_pageviews
-		daily_traffic = append(daily_traffic, traffic_data.Traffic{
-			Pageviews: pageviews + dnt_pageviews,
-			Visitors:  traffic_data.Estimate_visitors(pageviews, dnt_pageviews, visitors),
-		})
-	}
-
-	monthly_visitors, _ := rdb.PFCount(monthly_hll_keys...).Result()
-
-	traffic := traffic_data.Traffic{
-		Visitors:  traffic_data.Estimate_visitors(monthly_pageviews, monthly_dnt_pageviews, monthly_visitors),
-		Pageviews: monthly_pageviews + monthly_dnt_pageviews,
-	}
-	return traffic, daily_traffic, nil
-}
-
 func home(w http.ResponseWriter, r *http.Request) {
 	var domains []Domain
 	user, _ := r.Context().Value("user").(*User)
@@ -638,15 +517,16 @@ func home(w http.ResponseWriter, r *http.Request) {
 			}
 			now := time.Now()
 			start := now.AddDate(0, 0, -30)
-			traffic, daily_traffic, _ := host_traffic_summary(host, key, start, now)
+			traffic, daily_traffic, _ := traffic_data.HostSummary(host, key, start, now)
 
 			var data traffic_data.Data
-			for i, t := range daily_traffic {
-				x := float64(i)
-				y := float64(t.Pageviews)
-				data = append(data, struct{ X, Y float64 }{
-					X: x,
-					Y: y,
+			for _, traf := range daily_traffic {
+				data = append(data, struct {
+					X time.Time
+					Y int64
+				}{
+					X: traf.T,
+					Y: traf.Pageviews,
 				})
 			}
 
@@ -808,7 +688,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	rdb = redis.NewClient(&redis.Options{})
+	traffic_data.Init()
 
 	r := mux.NewRouter()
 	r.Use(handlers.RecoveryHandler())
